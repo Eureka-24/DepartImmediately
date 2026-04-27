@@ -4,6 +4,10 @@
     "amap-jsapi-skill": {
       "version": "1.1.1",
       "installedAt": 1777292947983
+    },
+    "amap-lbs-skill": {
+      "version": "2.0.1",
+      "installedAt": 1777302006826
     }
   }
 }

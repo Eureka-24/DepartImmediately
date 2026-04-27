@@ -51,7 +51,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/auth'));
 
 // AI Agent 路由（Phase 4 实现）
-// app.use('/api/agent', require('./routes/agent'));
+app.use('/api/agent', require('./routes/agent'));
 
 // ============================================
 // 错误处理

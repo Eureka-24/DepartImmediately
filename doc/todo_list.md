@@ -150,155 +150,187 @@
 
 ---
 
-## Phase 3: 认证系统实现
+## Phase 3: 认证系统实现 ✅ 完成
 
-### 3.1 后端认证 API
+### 3.1 后端认证 API ✅
 
 ```
-任务 3.1.1: 用户注册 API
-  - 创建 src/routes/auth.js
+任务 3.1.1: 用户注册 API ✅
   - POST /api/auth/register
-  - 请求体验证: email, password
   - 密码 bcrypt 加密
   - 创建用户返回 JWT token
 
-任务 3.1.2: 用户登录 API
+任务 3.1.2: 用户登录 API ✅
   - POST /api/auth/login
   - 验证 email + password
   - 登录成功返回 JWT token
 
-任务 3.1.3: 获取用户信息
+任务 3.1.3: 获取用户信息 ✅
   - GET /api/auth/profile
   - JWT 中间件验证
   - 返回用户信息（不含密码）
 
-任务 3.1.4: 更新用户偏好
+任务 3.1.4: 更新用户偏好 ✅
   - PUT /api/auth/preferences
   - JWT 中间件验证
   - 更新 user_preferences 表
 
-任务 3.1.5: JWT 中间件
+任务 3.1.5: JWT 中间件 ✅
   - 创建 src/middleware/auth.js
   - 从 Authorization header 提取 token
   - 验证并解码 JWT
   - 将 userId 挂载到 req
 ```
 
-### 3.2 前端认证页面
+### 3.2 前端认证页面 ✅
 
 ```
-任务 3.2.1: 登录页面
-  - 创建 src/views/LoginView.vue
+任务 3.2.1: 登录页面 ✅
+  - LoginView.vue
   - 表单: email, password
-  - 提交调用 authStore.login()
-  - 成功跳转首页
-  - 失败显示错误消息
+  - 调用 authStore.login()
+  - 成功跳转首页，失败显示错误
 
-任务 3.2.2: 注册页面
-  - 创建 src/views/RegisterView.vue
+任务 3.2.2: 注册页面 ✅
+  - RegisterView.vue
   - 表单: email, password, confirmPassword
-  - 提交调用 authStore.register()
-  - 成功跳转登录页
-  - 失败显示错误消息
+  - 调用 authStore.register()
+  - 成功跳转登录页，失败显示错误
 ```
 
-### 3.3 API 服务封装
+### 3.3 API 服务封装 ✅
 
 ```
-任务 3.3.1: API 基础封装
-  - 创建 src/services/api.js
-  - 创建 axios 实例
-  - 添加请求拦截器附加 JWT token
-  - 添加响应拦截器处理错误
+任务 3.3.1: API 基础封装 ✅
+  - src/services/api.js
+  - axios 实例 + 请求/响应拦截器
 
-任务 3.3.2: 认证 API 封装
+任务 3.3.2: 认证 API 封装 ✅
   - authApi.login()
   - authApi.register()
   - authApi.getProfile()
   - authApi.updatePreferences()
 ```
 
-**验收: 可以完成注册、登录、查看个人信息**
+**验收: 可以完成注册、登录、查看个人信息 ✅**
 
 ---
 
-## Phase 4: AI Agent 核心
+## Phase 4: AI Agent 核心（LangChain.js 双 Agent 架构）
 
-### 4.1 Deepseek API 封装
+### 技术方案变更
+- **原方案**: 单 Agent + 纯手写工具调用循环
+- **新方案**: 双 Agent (Intent + Planning) + LangChain.js
+- **理由**: LangChain.js 提供开箱即用的 ReAct Agent，自动处理工具调用循环
+
+### 4.1 依赖安装与配置
 
 ```
-任务 4.1.1: Deepseek 客户端
-  - 创建 src/utils/deepseek.js
-  - 封装 OpenAI-compatible 接口
-  - 配置 Deepseek API endpoint 和 key
-  - 实现 chat completions 调用
+任务 4.1.1: 安装 LangChain.js 依赖
+  - @langchain/core
+  - @langchain/openai
+  - langchain
 
-任务 4.1.2: Function Calling 配置
-  - 定义 tools 数组:
-    - search_pois
-    - route_planning
-    - get_user_preferences
-  - 实现 tool_call 处理逻辑
+任务 4.1.2: LLM 配置
+  - 创建 src/config/llm.js
+  - 配置 Deepseek ChatOpenAI 兼容接口
+  - baseURL: https://api.deepseek.com/v1
+
+任务 4.1.3: 更新 .env 配置
+  - DEEPSEEK_API_KEY
+  - AMAP_WEBSERVICE_KEY
 ```
 
-### 4.2 工具函数实现
+### 4.2 工具函数（LangChain Tool 包装）
 
 ```
 任务 4.2.1: search_pois 工具
   - 创建 src/services/tools/searchPois.js
+  - 使用 LangChain Tool 包装
   - 调用高德 POI 搜索 API
   - 返回格式化结果: [{ name, location, type, rating }]
 
 任务 4.2.2: route_planning 工具
   - 创建 src/services/tools/routePlanning.js
+  - 使用 LangChain Tool 包装
   - 调用高德路径规划 API
   - 支持 walking/driving/riding/transfer
   - 返回: { distance, duration, path }
 
-任务 4.2.3: get_user_preferences 工具
+任务 4.2.3: userPrefs 工具
   - 创建 src/services/tools/userPrefs.js
+  - 使用 LangChain Tool 包装
   - 从数据库查询用户偏好
   - 返回: { favoriteCities, favoriteTypes, travelStyle }
+
+任务 4.2.4: 工具导出
+  - 创建 src/services/tools/index.js
+  - 导出所有工具数组
 ```
 
-### 4.3 AI Agent 服务
+### 4.3 Intent Agent（意图识别）
 
 ```
-任务 4.3.1: Agent 核心逻辑
+任务 4.3.1: Intent Agent 实现
+  - 创建 src/services/intentAgent.js
+  - 使用 LangChain LLM + Structured Output
+  - 无需工具调用，纯 LLM 处理
+
+任务 4.3.2: Intent Schema 定义
+  - 使用 Zod 定义结构化输出格式
+  - 字段: city, startTime, endTime, duration, interests, travelStyle, budget, specialRequirements
+
+任务 4.3.3: 系统提示词
+  - 创建 src/config/prompts.js
+  - 包含意图识别角色定义和输出格式要求
+```
+
+### 4.4 Planning Agent（旅行规划）
+
+```
+任务 4.4.1: Planning Agent 实现
+  - 创建 src/services/planningAgent.js
+  - 使用 LangGraph createReactAgent
+  - 绑定所有工具
+
+任务 4.4.2: 系统提示词
+  - 包含旅行规划角色定义
+  - 工具使用说明
+  - 输出格式要求（routes, alternatives）
+
+任务 4.4.3: 工具调用测试
+  - 验证 search_pois 被正确调用
+  - 验证 route_planning 被正确调用
+```
+
+### 4.5 Agent Service 与路由
+
+```
+任务 4.5.1: Agent Service（编排主逻辑）
   - 创建 src/services/agentService.js
-  - 实现 5 步工作流:
-    1. 理解意图（解析用户输入）
-    2. 搜索 POI（调用 search_pois）
-    3. 路径规划（调用 route_planning）
-    4. 优化调整（检查时间约束）
-    5. 生成规划（整合结果）
-  - 实现 Function Calling 循环处理
+  - 串联: 用户偏好 → Intent Agent → Planning Agent
+  - 保存到 trip_history
 
-任务 4.3.2: Agent 路由
+任务 4.5.2: Agent 路由
+  - 创建 src/routes/agent.js
   - POST /api/agent/plan
   - JWT 验证
-  - 请求体验证: city, startTime, endTime, preferences
-  - 调用 agentService.generatePlan()
-  - 保存到 trip_history
-  - 返回结构化结果
+  - 请求体验证
 ```
 
-### 4.4 AI Prompt 优化
+### 4.6 错误处理与降级
 
 ```
-任务 4.4.1: 系统提示词
-  - 创建 src/config/prompts.js
-  - 导出 systemPrompt
-  - 包含:
-    - 角色定义
-    - 工具说明
-    - 规划原则
-    - 输出格式要求
+任务 4.6.1: 超时控制
+  - Deepseek API 超时 15s
+  - 降级返回默认路线
 
-任务 4.4.2: 错误处理与降级
-  - 超时处理（15s）
-  - API 失败降级（返回默认热门路线）
-  - 空结果处理
+任务 4.6.2: API 失败降级
+  - 高德 API 返回空时返回友好提示
+  - Planning Agent 工具调用失败降级
+
+任务 4.6.3: 参数验证
+  - Intent Agent 解析失败返回 400
 ```
 
 **验收: POST /api/agent/plan 返回完整路线规划**

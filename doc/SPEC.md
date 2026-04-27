@@ -257,7 +257,65 @@ CREATE TABLE trip_history (
 
 ### 4.1 Deepseek Function Calling 配置
 
-#### 4.1.1 可用工具
+#### 4.1.1 双 Agent 架构
+
+**Intent Agent（意图识别）**
+- 类型：LangChain LLM + Structured Output
+- 输入：用户偏好描述 + 历史偏好数据
+- 输出：结构化意图数据
+- 无需工具调用
+
+```javascript
+// Intent Agent 输出结构
+{
+  city: "hangzhou",
+  startTime: "2026-05-01 09:00",
+  endTime: "2026-05-01 18:00",
+  duration: 540,
+  interests: ["景点", "美食", "拍照"],
+  travelStyle: "休闲",
+  budget: "中等",
+  specialRequirements: "不想太累，适合亲子"
+}
+```
+
+**Planning Agent（旅行规划）**
+- 类型：LangGraph Prebuilt ReAct Agent
+- 输入：Intent Agent 输出的结构化意图
+- 工具：search_pois, route_planning, get_user_preferences
+- 输出：最终路线规划
+
+```javascript
+// Planning Agent 输出结构
+{
+  routes: [{
+    pois: [{
+      name: "西湖",
+      lng: 120.148287,
+      lat: 30.265221,
+      arrival: "09:30",
+      duration: 120,
+      transport: "步行",
+      reason: "杭州标志性景点，适合休闲"
+    }],
+    totalDuration: 540,
+    score: 0.95,
+    summary: "杭州一日休闲游路线"
+  }],
+  alternatives: []
+}
+```
+
+#### 4.1.2 技术选型
+
+| 组件 | 选择 | 理由 |
+|-----|------|------|
+| Agent 框架 | LangChain.js | 内置 ReAct Agent，开箱即用自动工具调用循环 |
+| LLM | Deepseek Chat (ChatOpenAI 兼容) | 支持 Function Calling |
+| Planning Agent | LangGraph Prebuilt ReAct Agent | 减少自行实现循环逻辑 |
+| Intent Agent | LangChain LLM + Structured Output | 纯 LLM，无需工具 |
+
+#### 4.1.3 可用工具（LangChain Tool）
 
 ```javascript
 const tools = [
@@ -362,14 +420,17 @@ const systemPrompt = `你是一位专业的旅行规划师，擅长根据用户�
 
 ```
 1. 接收用户请求 (city, startTime, endTime, preferences, userId)
-2. 如果有 userId，调用 get_user_preferences 获取历史偏好
-3. 解析用户偏好，提取关键词
-4. 调用 search_pois 搜索相关 POI
-5. 根据搜索结果，初步筛选 5-8 个候选 POI
-6. 计算 POI 之间的路线（两两调用 route_planning）
-7. 基于时间和偏好，优化 POI 顺序
-8. 生成最终路线规划
-9. 返回结构化结果
+2. 获取用户历史偏好（调用 get_user_preferences）
+3. Intent Agent 处理
+   3.1 解析用户偏好，提取关键词
+   3.2 生成结构化意图数据
+4. Planning Agent 处理（ReAct + Tools）
+   4.1 调用 search_pois 搜索相关 POI
+   4.2 根据搜索结果，初步筛选 5-8 个候选 POI
+   4.3 计算 POI 之间的路线（调用 route_planning）
+   4.4 基于时间和偏好，优化 POI 顺序
+5. 生成最终路线规划
+6. 返回结构化结果
 ```
 
 ### 4.3 错误处理
@@ -380,6 +441,8 @@ const systemPrompt = `你是一位专业的旅行规划师，擅长根据用户�
 | 高德 API 返回空 | 提示用户"该城市暂无可用数据" |
 | 用户未登录 | 返回 401，前端跳转登录页 |
 | 参数缺失 | 返回 400，提示缺少参数 |
+| Intent Agent 解析失败 | 返回 400，让用户重新描述需求 |
+| Planning Agent 工具调用失败 | 降级返回默认路线 |
 
 ---
 

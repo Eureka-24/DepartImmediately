@@ -1456,26 +1456,33 @@
             const hours = Math.round((end - start) / (1000 * 60 * 60));
             const days = Math.ceil(hours / 24);
 
-            let itinerary = `${cityNames[city]}旅行路线规划\n`;
-            itinerary += `旅行时间: ${start.toLocaleDateString('zh-CN')} ${start.getHours()}:00 - `;
-            itinerary += `${end.toLocaleDateString('zh-CN')} ${end.getHours()}:00\n`;
-            itinerary += `旅行时长: 约 ${days} 天 ${hours % 24} 小时\n`;
+            const formatDate = (date) => {
+                const month = date.getMonth() + 1;
+                const day = date.getDate();
+                return `${date.getFullYear()}/${month}/${day}`;
+            };
+
+            const formatTime = (date) => {
+                return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+            };
+
+            let itinerary = `${cityNames[city]}旅行路线规划\n\n`;
+            itinerary += `旅行时间: ${formatDate(start)} ${formatTime(start)} - ${formatDate(end)} ${formatTime(end)} `;
+            itinerary += `旅行时长: 约 ${days} 天 ${hours % 24} 小时\n\n`;
             itinerary += `用户偏好: ${preferences}\n\n`;
-            itinerary += '='.repeat(50) + '\n\n';
+            itinerary += '==================================================\n\n';
 
             route.forEach((idx, dayIdx) => {
                 const landmark = data.landmarks[idx];
                 const day = Math.floor(dayIdx / 2) + 1;
                 const period = dayIdx % 2 === 0 ? '上午' : '下午';
 
-                itinerary += `【第${day}天 ${period}】${landmark.name}\n`;
-                itinerary += `  → 建议游览时间: ${1 + Math.floor(Math.random() * 2)}小时\n`;
-                itinerary += `  → 特色: ${getLandmarkDescription(landmark.name)}\n\n`;
+                itinerary += `【第${day}天 ${period}】\n`;
+                itinerary += `${landmark.name}  建议游览时间: ${1 + Math.floor(Math.random() * 2)}小时  特色: ${getLandmarkDescription(landmark.name)}\n\n`;
             });
 
-            itinerary += '='.repeat(50) + '\n\n';
-            itinerary += '路线总结:\n';
-            itinerary += `本路线从【${data.landmarks[route[0]].name}】出发，`;
+            itinerary += '=====================================\n\n';
+            itinerary += `路线总结: 本路线从【${data.landmarks[route[0]].name}】出发，`;
             itinerary += `途经 ${route.slice(1, -1).map(i => data.landmarks[i].name).join('、')}，`;
             itinerary += `最后抵达【${data.landmarks[route[route.length - 1]].name}】。\n\n`;
             itinerary += '祝您旅途愉快！';

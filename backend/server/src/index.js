@@ -48,7 +48,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // 认证路由（Phase 3 实现）
-// app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auth', require('./routes/auth'));
 
 // AI Agent 路由（Phase 4 实现）
 // app.use('/api/agent', require('./routes/agent'));

@@ -1,7 +1,6 @@
 <template>
   <div class="itinerary-output">
     <div class="output-header">
-      <span class="output-dot" :class="{ active: isTyping }"></span>
       <span class="output-label">AI 路线规划助手</span>
       <button v-if="result" class="copy-btn" @click="copyOutput" title="复制内容">
         {{ copied ? '已复制' : '复制' }}
@@ -9,16 +8,13 @@
     </div>
     <div ref="outputContent" class="output-content">
       <span v-if="!result" class="placeholder">{{ placeholder }}</span>
-      <template v-else>
-        <span class="typed-text" v-html="displayText"></span>
-        <span v-if="isTyping" class="cursor"></span>
-      </template>
+      <span v-else class="formatted-text" v-html="displayText"></span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps({
   result: {
@@ -28,20 +24,12 @@ const props = defineProps({
   placeholder: {
     type: String,
     default: '请填写上方表单，点击「生成路线规划」开始智能规划...'
-  },
-  typingSpeed: {
-    type: Number,
-    default: 25 // 每字符25ms
   }
 })
 
-const emit = defineEmits(['typed-complete'])
-
 const outputContent = ref(null)
 const displayText = ref('')
-const isTyping = ref(false)
 const copied = ref(false)
-let typingTimer = null
 
 // 格式化结果为可读文本
 function formatResult(result) {
@@ -113,70 +101,11 @@ function formatResult(result) {
   return lines.join('\n')
 }
 
-// 格式化日期时间
-function formatDateTime(dt) {
-  if (!dt) return ''
-  const date = new Date(dt)
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hour = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day} ${hour}:${min}`
-}
-
-// 格式化时长
-function formatDuration(minutes) {
-  if (!minutes) return ''
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours > 24) {
-    const days = Math.floor(hours / 24)
-    const remainHours = hours % 24
-    return `${days}天 ${remainHours}小时`
-  }
-  return hours > 0 ? `${hours}小时${mins > 0 ? mins + '分钟' : ''}` : `${mins}分钟`
-}
-
-// 格式化评分
-function formatScore(score) {
-  if (!score) return ''
-  const stars = Math.round(score * 5)
-  return '★'.repeat(stars) + '☆'.repeat(5 - stars)
-}
-
-// 打字机效果
-function startTyping(text) {
-  // 清除之前的定时器
-  if (typingTimer) {
-    clearTimeout(typingTimer)
-  }
-
-  displayText.value = ''
-  isTyping.value = true
-
-  let index = 0
-  const chars = text.split('')
-
-  function typeNext() {
-    if (index < chars.length) {
-      // 处理换行符和多个空格
-      const char = chars[index]
-      if (char === '\n') {
-        displayText.value += '<br>'
-      } else if (char === ' ' && chars[index - 1] === ' ') {
-        displayText.value += '&nbsp;&nbsp;'
-      } else {
-        displayText.value += char
-      }
-      index++
-      typingTimer = setTimeout(typeNext, props.typingSpeed)
-    } else {
-      isTyping.value = false
-      emit('typed-complete')
-    }
-  }
-
-  typeNext()
+// 将纯文本转换为 HTML（处理换行和空格）
+function textToHtml(text) {
+  return text
+    .replace(/\n/g, '<br>')
+    .replace(/  /g, '&nbsp;&nbsp;')
 }
 
 // 复制内容
@@ -197,27 +126,13 @@ async function copyOutput() {
 
 // 监听 result 变化
 watch(() => props.result, (newResult) => {
-  console.log('[ItineraryOutput] watch triggered, newResult:', newResult)
   if (newResult) {
-    console.log('[ItineraryOutput] newResult.routes:', newResult.routes)
     const formattedText = formatResult(newResult)
-    console.log('[ItineraryOutput] formattedText:', formattedText.substring(0, 200))
-    nextTick(() => {
-      startTyping(formattedText)
-    })
+    displayText.value = textToHtml(formattedText)
   } else {
     displayText.value = ''
-    isTyping.value = false
   }
 }, { immediate: true })
-
-// 清理定时器
-import { onUnmounted } from 'vue'
-onUnmounted(() => {
-  if (typingTimer) {
-    clearTimeout(typingTimer)
-  }
-})
 </script>
 
 <style scoped>
@@ -235,26 +150,6 @@ onUnmounted(() => {
   margin-bottom: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
-}
-
-.output-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--text-dim, #64748b);
-  border-radius: 50%;
-  box-shadow: 0 0 8px var(--text-dim, #64748b);
-  transition: all 0.3s ease;
-}
-
-.output-dot.active {
-  background: var(--amber, #f59e0b);
-  box-shadow: 0 0 10px var(--amber, #f59e0b);
-  animation: pulse 1.5s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(0.85); }
 }
 
 .output-label {
@@ -295,23 +190,7 @@ onUnmounted(() => {
   font-style: italic;
 }
 
-.typed-text {
-  display: inline;
-}
-
-.cursor {
-  display: inline-block;
-  width: 8px;
-  height: 18px;
-  background: linear-gradient(180deg, var(--amber, #f59e0b), var(--coral, #f97316));
-  animation: blink 0.8s infinite;
-  vertical-align: middle;
-  margin-left: 4px;
-  border-radius: 2px;
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+.formatted-text {
+  display: block;
 }
 </style>

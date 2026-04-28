@@ -100,6 +100,22 @@ export const useTripStore = defineStore('trip', () => {
     currentTrip.value = null
   }
 
+  async function deleteSession(id) {
+    try {
+      await axios.delete(`${API_BASE_URL}/agent/history/${id}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        }
+      })
+      // 从本地历史中移除
+      history.value = history.value.filter(h => h.id !== id)
+      return true
+    } catch (err) {
+      console.error('[tripStore] delete session error:', err)
+      return false
+    }
+  }
+
   return {
     // State
     currentTrip,
@@ -110,6 +126,7 @@ export const useTripStore = defineStore('trip', () => {
     submitPlan,
     loadHistory,
     setCurrentTrip,
-    clearCurrentTrip
+    clearCurrentTrip,
+    deleteSession
   }
 })

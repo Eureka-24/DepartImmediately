@@ -163,6 +163,31 @@ router.get('/history/:id', authMiddleware, async (req, res, next) => {
 });
 
 /**
+ * DELETE /api/agent/history/:id
+ * 删除单条规划历史
+ * 需要 JWT 认证
+ */
+router.delete('/history/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+
+    const db = require('../db');
+    const result = db.query(
+      'DELETE FROM trip_history WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
+
+    res.json({
+      success: true,
+      message: '删除成功'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /api/agent/plan_test
  * 测试用规划接口 - 直接返回固定结构化结果，不经过 Agent
  */

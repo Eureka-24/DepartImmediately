@@ -9,6 +9,15 @@
             <div class="sidebar-subtitle">智能路线规划</div>
           </div>
         </div>
+        <div class="user-info">
+          <span class="user-email">{{ authStore.user?.email || '未登录' }}</span>
+        </div>
+      </div>
+      <div class="session-header">
+        <span class="session-label">历史会话</span>
+        <button class="new-session-btn" @click="handleNewSession" title="新建会话">
+          +
+        </button>
       </div>
       <div class="session-list">
         <div
@@ -18,8 +27,11 @@
           :class="{ active: currentTripId === item.id }"
           @click="loadTrip(item)"
         >
-          <div class="session-title">{{ item.title || getTripTitle(item) }}</div>
-          <div class="session-date">{{ formatDate(item.createdAt) }}</div>
+          <div class="session-content">
+            <div class="session-title">{{ item.title || getTripTitle(item) }}</div>
+            <div class="session-date">{{ formatDate(item.createdAt) }}</div>
+          </div>
+          <button class="delete-session-btn" @click.stop="handleDeleteSession(item.id)" title="删除">×</button>
         </div>
         <div v-if="history.length === 0" class="session-item empty">
           <div class="session-title">暂无历史记录</div>
@@ -160,8 +172,12 @@ const formData = reactive({
   preferences: ''
 })
 
-onMounted(() => {
-  loadHistory()
+onMounted(async () => {
+  // 初始化用户认证状态（从 localStorage 恢复 token 并获取用户信息）
+  if (authStore.token && !authStore.user) {
+    await authStore.fetchProfile()
+  }
+  await loadHistory()
 })
 
 function toggleSidebar() {
@@ -238,6 +254,23 @@ function handleLogout() {
   authStore.logout()
   router.push('/login')
 }
+
+function handleNewSession() {
+  currentTripId.value = null
+  currentResult.value = null
+  formData.city = ''
+  formData.startTime = ''
+  formData.endTime = ''
+  formData.preferences = ''
+}
+
+async function handleDeleteSession(id) {
+  if (!confirm('确定要删除这个会话吗？')) return
+  await tripStore.deleteSession(id)
+  if (currentTripId.value === id) {
+    handleNewSession()
+  }
+}
 </script>
 
 <style scoped>
@@ -266,6 +299,101 @@ function handleLogout() {
 .logout-btn:hover {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.user-info {
+  padding: 8px 16px;
+  border-top: 1px solid var(--card-border);
+}
+
+.user-email {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.session-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.new-session-btn {
+  width: 24px;
+  height: 24px;
+  background: var(--amber);
+  border: none;
+  border-radius: 50%;
+  color: var(--midnight-deep);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.new-session-btn:hover {
+  transform: scale(1.1);
+  background: var(--coral);
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-left: 3px solid transparent;
+}
+
+.session-item:hover {
+  background: var(--glass);
+}
+
+.session-item.active {
+  background: var(--glass);
+  border-left-color: var(--amber);
+}
+
+.session-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.delete-session-btn {
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-item:hover .delete-session-btn {
+  opacity: 1;
+}
+
+.delete-session-btn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: white;
 }
 
 .loading-overlay {

@@ -15,13 +15,13 @@
           v-for="item in history"
           :key="item.id"
           class="session-item"
-          :class="{ active: currentTrip?.id === item.id }"
+          :class="{ active: currentTripId === item.id }"
           @click="loadTrip(item)"
         >
           <div class="session-title">{{ item.title || getTripTitle(item) }}</div>
           <div class="session-date">{{ formatDate(item.createdAt) }}</div>
         </div>
-        <div v-if="history.length === 0" class="session-item">
+        <div v-if="history.length === 0" class="session-item empty">
           <div class="session-title">暂无历史记录</div>
         </div>
       </div>
@@ -93,7 +93,7 @@
                 @click="handleSubmit"
                 :disabled="isLoading"
               >
-                {{ isLoading ? '生成中...' : '生成路线规划' }}
+                {{ isLoading ? '规划中...' : '生成路线规划' }}
               </button>
             </div>
           </div>
@@ -106,46 +106,52 @@
           <span class="map-badge">高德地图</span>
         </div>
         <div class="map-container">
-          <div id="container" class="map-placeholder">
-            <div class="map-placeholder-icon">🗺️</div>
-            <div>地图加载中...</div>
-          </div>
+          <AmapContainer
+            ref="mapRef"
+            :city="formData.city"
+            :pois="currentResult?.routes?.[0]?.pois || []"
+            :routeData="currentResult?.routes?.[0] || null"
+            @map-ready="onMapReady"
+          />
         </div>
       </section>
 
       <section class="output-section">
         <div class="output-container">
-          <div class="output-header">
-            <span class="output-dot"></span>
-            <span class="output-label">AI 路线规划助手</span>
-          </div>
-          <div id="outputContent" class="output-placeholder">
-            请填写上方表单，点击「生成路线规划」开始智能规划...
-          </div>
+          <ItineraryOutput
+            :result="currentResult"
+            placeholder="请填写上方表单，点击「生成路线规划」开始智能规划..."
+          />
         </div>
       </section>
     </main>
 
     <div class="loading-overlay" :class="{ active: isLoading }">
       <div class="loader"></div>
+      <span class="loader-text">AI 规划中，请稍候...</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
+import AmapContainer from '../components/map/AmapContainer.vue'
+import ItineraryOutput from '../components/output/ItineraryOutput.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const tripStore = useTripStore()
 
+const mapRef = ref(null)
 const sidebarOpen = ref(false)
-const isLoading = ref(false)
-const currentTrip = ref(null)
-const history = ref([])
+const currentTripId = ref(null)
+const currentResult = ref(null)
+
+const isLoading = computed(() => tripStore.isLoading)
+const history = computed(() => tripStore.history || [])
 
 const formData = reactive({
   city: '',
@@ -175,6 +181,7 @@ function getTripTitle(item) {
 }
 
 function formatDate(dateString) {
+  if (!dateString) return ''
   const date = new Date(dateString)
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
@@ -183,15 +190,16 @@ function formatDate(dateString) {
 
 async function loadHistory() {
   await tripStore.loadHistory()
-  history.value = tripStore.history
 }
 
 function loadTrip(trip) {
-  currentTrip.value = trip
-  formData.city = trip.city
-  formData.startTime = trip.startTime
-  formData.endTime = trip.endTime
-  formData.preferences = trip.preferences
+  currentTripId.value = trip.id || trip._id
+  currentResult.value = trip.result
+
+  formData.city = trip.city || ''
+  formData.startTime = trip.startTime || ''
+  formData.endTime = trip.endTime || ''
+  formData.preferences = trip.preferences || ''
 }
 
 async function handleSubmit() {
@@ -205,23 +213,22 @@ async function handleSubmit() {
     return
   }
 
-  isLoading.value = true
+  const result = await tripStore.submitPlan(
+    formData.city,
+    formData.startTime,
+    formData.endTime,
+    formData.preferences
+  )
 
-  try {
-    const result = await tripStore.submitPlan(
-      formData.city,
-      formData.startTime,
-      formData.endTime,
-      formData.preferences
-    )
-
-    if (result) {
-      currentTrip.value = result
-      await loadHistory()
-    }
-  } finally {
-    isLoading.value = false
+  if (result) {
+    currentTripId.value = result.id || result._id || Date.now()
+    currentResult.value = result
+    await loadHistory()
   }
+}
+
+function onMapReady(map) {
+  console.log('[HomeView] 地图已就绪')
 }
 
 function handleLogout() {
@@ -256,5 +263,53 @@ function handleLogout() {
 .logout-btn:hover {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.loading-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 14, 26, 0.92);
+  z-index: 150;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.loading-overlay.active {
+  display: flex;
+}
+
+.loader {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(245, 158, 11, 0.15);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loader-text {
+  color: var(--text-muted);
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.session-item.empty {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.session-item.empty:hover {
+  transform: none;
+  background: var(--glass);
 }
 </style>

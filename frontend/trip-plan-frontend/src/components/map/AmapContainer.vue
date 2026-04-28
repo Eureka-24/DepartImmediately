@@ -1,0 +1,488 @@
+<template>
+  <div class="amap-container">
+    <div ref="mapContainer" class="map-wrapper"></div>
+    <div v-if="!isMapReady" class="map-loading">
+      <div class="loading-spinner"></div>
+      <span>地图加载中...</span>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted, onUnmounted, watch, shallowRef } from 'vue'
+import AMapLoader from '@amap/amap-jsapi-loader'
+
+const props = defineProps({
+  city: {
+    type: String,
+    default: 'beijing'
+  },
+  pois: {
+    type: Array,
+    default: () => []
+  },
+  routeData: {
+    type: Object,
+    default: null
+  }
+})
+
+const emit = defineEmits(['map-ready', 'marker-click'])
+
+// Refs
+const mapContainer = ref(null)
+const isMapReady = ref(false)
+const map = shallowRef(null)
+const markers = shallowRef([])
+const polylines = shallowRef([])
+
+// 城市坐标映射
+const cityCoordinates = {
+  beijing: [116.397428, 39.90923],
+  shanghai: [121.473658, 31.230416],
+  hangzhou: [120.15507, 30.27415],
+  chengdu: [104.065735, 30.659462],
+  xian: [108.940175, 34.341568],
+  chongqing: [106.551556, 29.56301]
+}
+
+// 城市名称映射
+const cityNames = {
+  beijing: '北京',
+  shanghai: '上海',
+  hangzhou: '杭州',
+  chengdu: '成都',
+  xian: '西安',
+  chongqing: '重庆'
+}
+
+// 初始化地图
+async function initMap() {
+  if (!mapContainer.value) return
+
+  const jsApiKey = import.meta.env.VITE_AMAP_JSAPI_KEY
+  const securityCode = import.meta.env.VITE_AMAP_SECURITY_CODE
+
+  if (!jsApiKey || jsApiKey === 'your_amap_jsapi_key') {
+    console.warn('高德地图 JS API Key 未配置')
+    return
+  }
+
+  try {
+    // 配置安全密钥
+    if (securityCode && securityCode !== 'your_amap_security_code') {
+      window._AMapSecurityConfig = {
+        securityJsCode: securityCode
+      }
+    }
+
+    const AMap = await AMapLoader.load({
+      key: jsApiKey,
+      version: '2.0',
+      plugins: ['AMap.Scale', 'AMap.ToolBar', 'AMap.Marker']
+    })
+
+    // 设置应用标识
+    AMap.getConfig().appname = 'trip-plan-frontend'
+
+    // 创建地图实例
+    const mapInstance = new AMap.Map(mapContainer.value, {
+      viewMode: '2D',
+      zoom: 12,
+      center: cityCoordinates[props.city] || cityCoordinates.beijing,
+      mapStyle: 'amap://styles/dark' // 深色主题
+    })
+
+    // 添加控件
+    mapInstance.addControl(new AMap.Scale())
+    mapInstance.addControl(new AMap.ToolBar({ position: 'RB' }))
+
+    map.value = mapInstance
+    isMapReady.value = true
+    emit('map-ready', mapInstance)
+
+    console.log('[AmapContainer] 地图初始化成功')
+  } catch (error) {
+    console.error('[AmapContainer] 地图加载失败:', error)
+  }
+}
+
+// 在指定位置显示标记
+function showMarker(lng, lat, options = {}) {
+  if (!map.value || !isMapReady.value) return
+
+  const AMap = window.AMap
+  if (!AMap) return
+
+  const marker = new AMap.Marker({
+    position: new AMap.LngLat(lng, lat),
+    title: options.title || '',
+    label: options.label ? {
+      content: options.label,
+      direction: 'top'
+    } : undefined,
+    icon: options.icon || undefined,
+    extData: options.extData
+  })
+
+  // 点击事件
+  if (options.onClick) {
+    marker.on('click', () => options.onClick(marker))
+  }
+
+  map.value.add(marker)
+  markers.value.push(marker)
+
+  return marker
+}
+
+// 显示 POI 标记列表
+function showPois(pois) {
+  if (!map.value || !pois || pois.length === 0) return
+
+  clearMarkers()
+
+  pois.forEach((poi, index) => {
+    if (!poi.location) return
+
+    const [lng, lat] = poi.location.split(',').map(Number)
+    if (isNaN(lng) || isNaN(lat)) return
+
+    // 创建自定义标记
+    const markerContent = document.createElement('div')
+    markerContent.className = 'custom-marker'
+    markerContent.innerHTML = `<span class="marker-number">${index + 1}</span>`
+
+    const marker = new window.AMap.Marker({
+      position: new window.AMap.LngLat(lng, lat),
+      content: markerContent,
+      offset: new window.AMap.Pixel(-15, -30),
+      extData: poi
+    })
+
+    // 信息窗口
+    marker.on('click', () => {
+      const infoWindow = new window.AMap.InfoWindow({
+        content: createInfoWindowContent(poi, index),
+        offset: new window.AMap.Pixel(0, -30)
+      })
+      infoWindow.open(map.value, marker.getPosition())
+    })
+
+    map.value.add(marker)
+    markers.value.push(marker)
+  })
+
+  // 调整视野
+  setFitView()
+}
+
+// 创建信息窗口内容
+function createInfoWindowContent(poi, index) {
+  const name = poi.name || '未知景点'
+  const type = poi.type || '景点'
+  const rating = poi.rating || 'N/A'
+  const arrival = poi.arrival || ''
+  const duration = poi.duration || 0
+  const reason = poi.reason || ''
+
+  return `
+    <div class="info-window">
+      <div class="info-window-header">
+        <span class="info-window-number">${index + 1}</span>
+        <h3 class="info-window-title">${name}</h3>
+      </div>
+      <div class="info-window-body">
+        <div class="info-row"><span class="info-label">类型:</span> ${type}</div>
+        <div class="info-row"><span class="info-label">评分:</span> ${rating}</div>
+        ${arrival ? `<div class="info-row"><span class="info-label">到达:</span> ${arrival}</div>` : ''}
+        ${duration ? `<div class="info-row"><span class="info-label">时长:</span> ${duration}分钟</div>` : ''}
+        ${reason ? `<div class="info-row"><span class="info-label">推荐理由:</span> ${reason}</div>` : ''}
+      </div>
+    </div>
+  `
+}
+
+// 绘制路线
+function drawRoute(route) {
+  if (!map.value || !route || !route.pois || route.pois.length === 0) return
+
+  clearPolylines()
+
+  const path = []
+  route.pois.forEach(poi => {
+    if (poi.location) {
+      const [lng, lat] = poi.location.split(',').map(Number)
+      if (!isNaN(lng) && !isNaN(lat)) {
+        path.push(new window.AMap.LngLat(lng, lat))
+      }
+    }
+  })
+
+  if (path.length < 2) return
+
+  // 绘制主路线
+  const polyline = new window.AMap.Polyline({
+    path: path,
+    strokeColor: '#f59e0b', // 琥珀色
+    strokeWeight: 6,
+    strokeOpacity: 0.8,
+    showDir: true,
+    lineJoin: 'round'
+  })
+
+  map.value.add(polyline)
+  polylines.value.push(polyline)
+
+  // 绘制方向箭头
+  for (let i = 0; i < path.length - 1; i++) {
+    const start = path[i]
+    const end = path[i + 1]
+    const midPoint = new window.AMap.LngLat(
+      (start.lng + end.lng) / 2,
+      (start.lat + end.lat) / 2
+    )
+    const angle = Math.atan2(end.lat - start.lat, end.lng - start.lng) * 180 / Math.PI
+
+    const arrow = new window.AMap.Marker({
+      position: midPoint,
+      icon: new window.AMap.Icon({
+        size: new window.AMap.Size(16, 16),
+        image: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath d="M8 0L16 12H0Z" fill="%23f59e0b"/%3E%3C/svg%3E',
+        imageSize: new window.AMap.Size(16, 16)
+      }),
+      offset: new window.AMap.Pixel(-8, -8),
+      rotation: angle
+    })
+    map.value.add(arrow)
+    polylines.value.push(arrow)
+  }
+
+  // 显示 POI 标记
+  showPois(route.pois)
+  setFitView()
+}
+
+// 清除所有标记
+function clearMarkers() {
+  if (!map.value) return
+  markers.value.forEach(marker => {
+    map.value.removeMarker(marker)
+  })
+  markers.value = []
+}
+
+// 清除所有线
+function clearPolylines() {
+  if (!map.value) return
+  polylines.value.forEach(polyline => {
+    map.value.remove(polyline)
+  })
+  polylines.value = []
+}
+
+// 调整视野
+function setFitView() {
+  if (!map.value || markers.value.length === 0) return
+  map.value.setFitView(markers.value, false, [50, 50, 50, 50])
+}
+
+// 切换城市
+function setCity(cityCode) {
+  if (!map.value || !cityCoordinates[cityCode]) return
+  map.value.setCenter(cityCoordinates[cityCode])
+  map.value.setZoom(12)
+  clearMarkers()
+  clearPolylines()
+}
+
+// 销毁地图
+function destroy() {
+  if (map.value) {
+    map.value.destroy()
+    map.value = null
+    isMapReady.value = false
+  }
+  markers.value = []
+  polylines.value = []
+}
+
+// 监听 props 变化
+watch(() => props.city, (newCity) => {
+  if (newCity && isMapReady.value) {
+    setCity(newCity)
+  }
+})
+
+watch(() => props.pois, (newPois) => {
+  if (newPois && newPois.length > 0 && isMapReady.value) {
+    showPois(newPois)
+  }
+}, { deep: true })
+
+watch(() => props.routeData, (newRoute) => {
+  if (newRoute && isMapReady.value) {
+    drawRoute(newRoute)
+  }
+}, { deep: true })
+
+// 生命周期
+onMounted(() => {
+  initMap()
+})
+
+onUnmounted(() => {
+  destroy()
+})
+
+// 暴露方法给父组件
+defineExpose({
+  initMap,
+  showMarker,
+  showPois,
+  drawRoute,
+  clearMarkers,
+  clearPolylines,
+  setFitView,
+  setCity,
+  destroy
+})
+</script>
+
+<style scoped>
+.amap-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  border-radius: var(--radius-xl, 20px);
+  overflow: hidden;
+}
+
+.map-wrapper {
+  width: 100%;
+  height: 100%;
+  min-height: 450px;
+}
+
+.map-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-bg, rgba(20, 30, 51, 0.7));
+  color: var(--text-muted, #94a3b8);
+  gap: 16px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(245, 158, 11, 0.1);
+  border-top-color: var(--amber, #f59e0b);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>
+
+<style>
+/* 全局样式 - 信息窗口和标记 */
+.custom-marker {
+  width: 30px;
+  height: 30px;
+  background: linear-gradient(135deg, var(--amber) 0%, var(--coral) 100%);
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+
+.custom-marker .marker-number {
+  transform: rotate(45deg);
+  color: var(--midnight-deep, #0a0e1a);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.info-window {
+  padding: 12px 16px;
+  min-width: 200px;
+}
+
+.info-window-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
+}
+
+.info-window-number {
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(135deg, var(--amber) 0%, var(--coral) 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--midnight-deep, #0a0e1a);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.info-window-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-bright, #f8fafc);
+  margin: 0;
+}
+
+.info-window-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-row {
+  font-size: 13px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.info-label {
+  color: var(--text-muted, #94a3b8);
+  margin-right: 6px;
+}
+
+/* 高德地图信息窗口样式覆盖 */
+.amap-info-content {
+  background: var(--card-bg, rgba(20, 30, 51, 0.95)) !important;
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.06)) !important;
+  border-radius: var(--radius-md, 12px) !important;
+  padding: 0 !important;
+}
+
+.amap-info-sharp {
+  border-top: 8px solid var(--card-bg, rgba(20, 30, 51, 0.95)) !important;
+}
+
+.amap-info-title {
+  background: transparent !important;
+  color: var(--text-bright, #f8fafc) !important;
+  font-weight: 600 !important;
+}
+
+.amap-info-close {
+  color: var(--text-muted, #94a3b8) !important;
+}
+</style>

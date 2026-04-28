@@ -216,226 +216,229 @@
 
 ---
 
-## Phase 4: AI Agent 核心（LangChain.js 双 Agent 架构）
+## Phase 4: AI Agent 核心（LangChain.js 双 Agent 架构） ✅ 完成
 
 ### 技术方案变更
 - **原方案**: 单 Agent + 纯手写工具调用循环
 - **新方案**: 双 Agent (Intent + Planning) + LangChain.js
 - **理由**: LangChain.js 提供开箱即用的 ReAct Agent，自动处理工具调用循环
 
-### 4.1 依赖安装与配置
+### 4.1 依赖安装与配置 ✅
 
 ```
-任务 4.1.1: 安装 LangChain.js 依赖
+任务 4.1.1: 安装 LangChain.js 依赖 ✅
   - @langchain/core
   - @langchain/openai
   - langchain
 
-任务 4.1.2: LLM 配置
+任务 4.1.2: LLM 配置 ✅
   - 创建 src/config/llm.js
   - 配置 Deepseek ChatOpenAI 兼容接口
   - baseURL: https://api.deepseek.com/v1
 
-任务 4.1.3: 更新 .env 配置
+任务 4.1.3: 更新 .env 配置 ✅
   - DEEPSEEK_API_KEY
   - AMAP_WEBSERVICE_KEY
 ```
 
-### 4.2 工具函数（LangChain Tool 包装）
+### 4.2 工具函数（LangChain Tool 包装） ✅
 
 ```
-任务 4.2.1: search_pois 工具
+任务 4.2.1: search_pois 工具 ✅
   - 创建 src/services/tools/searchPois.js
   - 使用 LangChain Tool 包装
   - 调用高德 POI 搜索 API
   - 返回格式化结果: [{ name, location, type, rating }]
 
-任务 4.2.2: route_planning 工具
+任务 4.2.2: route_planning 工具 ✅
   - 创建 src/services/tools/routePlanning.js
   - 使用 LangChain Tool 包装
   - 调用高德路径规划 API
   - 支持 walking/driving/riding/transfer
   - 返回: { distance, duration, path }
 
-任务 4.2.3: userPrefs 工具
+任务 4.2.3: userPrefs 工具 ✅
   - 创建 src/services/tools/userPrefs.js
   - 使用 LangChain Tool 包装
   - 从数据库查询用户偏好
   - 返回: { favoriteCities, favoriteTypes, travelStyle }
 
-任务 4.2.4: 工具导出
+任务 4.2.4: 工具导出 ✅
   - 创建 src/services/tools/index.js
   - 导出所有工具数组
 ```
 
-### 4.3 Intent Agent（意图识别）
+### 4.3 Intent Agent（意图识别） ✅
 
 ```
-任务 4.3.1: Intent Agent 实现
+任务 4.3.1: Intent Agent 实现 ✅
   - 创建 src/services/intentAgent.js
-  - 使用 LangChain LLM + Structured Output
+  - 使用 LangChain LLM + JSON 解析
   - 无需工具调用，纯 LLM 处理
 
-任务 4.3.2: Intent Schema 定义
-  - 使用 Zod 定义结构化输出格式
+任务 4.3.2: Intent Schema 定义 ✅
+  - 使用 JSON 解析替代 Zod（Deepseek 不支持 withStructuredOutput）
   - 字段: city, startTime, endTime, duration, interests, travelStyle, budget, specialRequirements
 
-任务 4.3.3: 系统提示词
+任务 4.3.3: 系统提示词 ✅
   - 创建 src/config/prompts.js
   - 包含意图识别角色定义和输出格式要求
 ```
 
-### 4.4 Planning Agent（旅行规划）
+### 4.4 Planning Agent（旅行规划） ✅
 
 ```
-任务 4.4.1: Planning Agent 实现
+任务 4.4.1: Planning Agent 实现 ✅
   - 创建 src/services/planningAgent.js
   - 使用 LangGraph createReactAgent
   - 绑定所有工具
 
-任务 4.4.2: 系统提示词
+任务 4.4.2: 系统提示词 ✅
   - 包含旅行规划角色定义
   - 工具使用说明
   - 输出格式要求（routes, alternatives）
+  - API 限流处理说明
 
-任务 4.4.3: 工具调用测试
+任务 4.4.3: 工具调用测试 ✅
   - 验证 search_pois 被正确调用
   - 验证 route_planning 被正确调用
+  - 修复高德 API v3/v4 版本差异
 ```
 
-### 4.5 Agent Service 与路由
+### 4.5 Agent Service 与路由 ✅
 
 ```
-任务 4.5.1: Agent Service（编排主逻辑）
+任务 4.5.1: Agent Service（编排主逻辑） ✅
   - 创建 src/services/agentService.js
   - 串联: 用户偏好 → Intent Agent → Planning Agent
   - 保存到 trip_history
 
-任务 4.5.2: Agent 路由
+任务 4.5.2: Agent 路由 ✅
   - 创建 src/routes/agent.js
   - POST /api/agent/plan
   - JWT 验证
   - 请求体验证
 ```
 
-### 4.6 错误处理与降级
+### 4.6 错误处理与降级 ✅
 
 ```
-任务 4.6.1: 超时控制
+任务 4.6.1: 超时控制 ✅
   - Deepseek API 超时 15s
   - 降级返回默认路线
 
-任务 4.6.2: API 失败降级
+任务 4.6.2: API 失败降级 ✅
   - 高德 API 返回空时返回友好提示
   - Planning Agent 工具调用失败降级
+  - API 限流时停止调用并使用已有数据
 
-任务 4.6.3: 参数验证
+任务 4.6.3: 参数验证 ✅
   - Intent Agent 解析失败返回 400
 ```
 
-**验收: POST /api/agent/plan 返回完整路线规划**
+**验收: POST /api/agent/plan 返回完整路线规划** ✅
 
 ---
 
-## Phase 5: 前端功能集成
+## Phase 5: 前端功能集成 ✅ 完成
 
-### 5.1 表单组件
+### 5.1 表单组件 ✅
 
 ```
-任务 5.1.1: CitySelect 组件
+任务 5.1.1: CitySelect 组件 ✅
   - 创建 src/components/form/CitySelect.vue
   - 自定义下拉选择器
   - 6 个城市: 北京、上海、杭州、成都、西安、重庆
   - 支持键盘导航
   - 与 trip store 联动
 
-任务 5.1.2: DateTimePicker 组件
+任务 5.1.2: DateTimePicker 组件 ✅
   - 创建 src/components/form/DateTimePicker.vue
   - 使用 Flatpickr
   - 深色主题匹配
   - 开始时间: minDate = today
   - 结束时间: minDate = 开始时间
 
-任务 5.1.3: PreferenceInput 组件
+任务 5.1.3: PreferenceInput 组件 ✅
   - 使用原生 textarea
   - 添加 placeholder 引导
   - 高度 120px
 ```
 
-### 5.2 地图组件
+### 5.2 地图组件 ✅
 
 ```
-任务 5.2.1: AmapContainer 组件
+任务 5.2.1: AmapContainer 组件 ✅
   - 创建 src/components/map/AmapContainer.vue
-  - 使用 amap-jsapi-skill 初始化
+  - 使用 @amap/amap-jsapi-loader 初始化
   - 配置: viewMode: '2D', 深色主题
   - 导出方法:
     - initMap(city): 初始化地图
     - drawRoute(pois): 绘制路线
     - showMarker(poi): 显示标记
 
-任务 5.2.2: POI 标记
+任务 5.2.2: POI 标记 ✅
   - 自定义标记样式（带序号）
   - 点击显示 InfoWindow
   - 起点绿色，终点红色
 
-任务 5.2.3: 路线绘制
+任务 5.2.3: 路线绘制 ✅
   - Polyline 连接各 POI
   - 渐变色线条
   - 绘制完成后 setFitView
 ```
 
-### 5.3 输出组件
+### 5.3 输出组件 ✅
 
 ```
-任务 5.3.1: ItineraryOutput 组件
+任务 5.3.1: ItineraryOutput 组件 ✅
   - 创建 src/components/output/ItineraryOutput.vue
   - 终端风格展示
-  - 实现打字机效果（30ms/字符）
+  - 实现打字机效果（25ms/字符）
   - 光标闪烁动画
   - 格式化输出内容
 
-任务 5.3.2: 加载状态
+任务 5.3.2: 加载状态 ✅
   - 显示 loading overlay
   - 加载动画
 ```
 
-### 5.4 HomeView 集成
+### 5.4 HomeView 集成 ✅
 
 ```
-任务 5.4.1: 首页布局
-  - 创建 src/views/HomeView.vue
+任务 5.4.1: 首页布局 ✅
+  - 更新 src/views/HomeView.vue
   - 左侧: 表单区域
   - 中间: 地图区域
   - 下方: 输出区域
 
-任务 5.4.2: 表单提交
+任务 5.4.2: 表单提交 ✅
   - 收集表单数据
   - 调用 tripStore.submitPlan()
   - 显示加载状态
   - 完成后触发打字机效果
 
-任务 5.4.3: 侧边栏
+任务 5.4.3: 侧边栏 ✅
   - 历史记录列表
   - 点击加载历史规划
 ```
 
-### 5.5 侧边栏组件
+### 5.5 侧边栏组件 ✅
 
 ```
-任务 5.5.1: AppSidebar 组件
-  - 创建 src/components/layout/AppSidebar.vue
+任务 5.5.1: AppSidebar 组件 ✅
+  - 更新 HomeView.vue 中的侧边栏
   - 显示标题 "Wayfinder"
   - 历史会话列表
   - 点击切换当前会话
 
-任务 5.5.2: 历史记录
+任务 5.5.2: 历史记录 ✅
   - 从 tripStore 获取 history
   - 每条显示: 标题、日期
   - 当前选中高亮
 ```
 
-**验收: 完整流程可运行：填写表单 -> 提交 -> AI规划 -> 地图展示 -> 输出显示**
+**验收: 完整流程可运行：填写表单 -> 提交 -> AI规划 -> 地图展示 -> 输出显示** ✅
 
 ---
 

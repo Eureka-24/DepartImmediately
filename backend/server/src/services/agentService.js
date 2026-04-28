@@ -131,11 +131,12 @@ async function generatePlan({ city, startTime, endTime, preferences, userId }) {
 function saveTripHistory({ userId, city, startTime, endTime, preferences, result }) {
   const id = crypto.randomUUID();
   const resultJson = JSON.stringify(result);
+  const preferencesJson = JSON.stringify(preferences);
 
   db.run(
     `INSERT INTO trip_history (id, user_id, city, start_time, end_time, preferences, result)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, userId, city, startTime, endTime, preferences, resultJson]
+    [id, userId, city, startTime, endTime, preferencesJson, resultJson]
   );
 
   return id;
@@ -153,15 +154,23 @@ function getTripHistory(userId, limit = 10) {
     [userId, limit]
   );
 
-  return records.map(record => ({
-    id: record.id,
-    city: record.city,
-    startTime: record.start_time,
-    endTime: record.end_time,
-    preferences: JSON.parse(record.preferences),
-    result: JSON.parse(record.result),
-    createdAt: record.created_at,
-  }));
+  return records.map(record => {
+    let parsedPreferences = record.preferences;
+    try {
+      parsedPreferences = JSON.parse(record.preferences);
+    } catch (e) {
+      // 如果解析失败，可能是旧数据（直接存储的字符串），直接使用原值
+    }
+    return {
+      id: record.id,
+      city: record.city,
+      startTime: record.start_time,
+      endTime: record.end_time,
+      preferences: parsedPreferences,
+      result: JSON.parse(record.result),
+      createdAt: record.created_at,
+    };
+  });
 }
 
 module.exports = {

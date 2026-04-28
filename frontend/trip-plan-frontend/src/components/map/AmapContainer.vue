@@ -365,7 +365,7 @@ async function drawRoute(routeData) {
 function clearMarkers() {
   if (!map.value) return
   markers.value.forEach(marker => {
-    map.value.removeMarker(marker)
+    map.value.remove(marker)
   })
   markers.value = []
 }

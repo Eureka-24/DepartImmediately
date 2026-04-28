@@ -17,7 +17,7 @@ export const useTripStore = defineStore('trip', () => {
     error.value = null
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/agent/plan`, {
+      const response = await axios.post(`${API_BASE_URL}/agent/plan_test`, {
         city,
         startTime,
         endTime,
@@ -28,12 +28,17 @@ export const useTripStore = defineStore('trip', () => {
         }
       })
 
+      console.log('[tripStore] API response:', response.data)
+
       // 解析后端响应结构: { success: true, data: { id, city, startTime, endTime, result } }
       const responseData = response.data
       const tripData = responseData.data || responseData
       const result = tripData.result || tripData
 
-      currentTrip.value = tripData
+      console.log('[tripStore] tripData:', tripData)
+      console.log('[tripStore] result (inner):', result)
+
+      currentTrip.value = tripData.result || tripData
 
       // Add to history - 确保 result 结构正确
       const historyItem = {
@@ -46,6 +51,8 @@ export const useTripStore = defineStore('trip', () => {
         createdAt: new Date().toISOString()
       }
 
+      console.log('[tripStore] historyItem:', historyItem)
+
       // 在添加前检查是否已存在
       const existingIndex = history.value.findIndex(h => h.id === historyItem.id)
       if (existingIndex >= 0) {
@@ -54,9 +61,11 @@ export const useTripStore = defineStore('trip', () => {
         history.value.unshift(historyItem)
       }
 
+      console.log('[tripStore] returning tripData:', tripData)
       return tripData
     } catch (err) {
       error.value = err.response?.data?.error || err.message || 'Failed to generate trip plan'
+      console.error('[tripStore] error:', err)
       return null
     } finally {
       isLoading.value = false
@@ -73,7 +82,7 @@ export const useTripStore = defineStore('trip', () => {
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
       })
-      history.value = response.data || []
+      history.value = response.data?.data || []
       return true
     } catch (err) {
       error.value = err.response?.data?.error || 'Failed to load history'

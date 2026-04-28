@@ -109,8 +109,8 @@
           <AmapContainer
             ref="mapRef"
             :city="formData.city"
-            :pois="currentResult?.routes?.[0]?.pois || []"
-            :routeData="currentResult?.routes?.[0] || null"
+            :pois="currentResult?.routes || []"
+            :routeData="currentResult || null"
             @map-ready="onMapReady"
           />
         </div>
@@ -221,8 +221,11 @@ async function handleSubmit() {
   )
 
   if (result) {
+    console.log('[HomeView] handleSubmit result:', result)
+    console.log('[HomeView] result.result:', result.result)
     currentTripId.value = result.id || result._id || Date.now()
-    currentResult.value = result
+    currentResult.value = result.result || result
+    console.log('[HomeView] currentResult set to:', currentResult.value)
     await loadHistory()
   }
 }

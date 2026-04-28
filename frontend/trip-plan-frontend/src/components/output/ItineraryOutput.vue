@@ -197,8 +197,11 @@ async function copyOutput() {
 
 // 监听 result 变化
 watch(() => props.result, (newResult) => {
+  console.log('[ItineraryOutput] watch triggered, newResult:', newResult)
   if (newResult) {
+    console.log('[ItineraryOutput] newResult.routes:', newResult.routes)
     const formattedText = formatResult(newResult)
+    console.log('[ItineraryOutput] formattedText:', formattedText.substring(0, 200))
     nextTick(() => {
       startTyping(formattedText)
     })

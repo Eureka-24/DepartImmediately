@@ -229,10 +229,7 @@ const formData = reactive({
 })
 
 onMounted(async () => {
-  // 初始化用户认证状态（从 localStorage 恢复 token 并获取用户信息）
-  if (authStore.token && !authStore.user) {
-    await authStore.fetchProfile()
-  }
+  // Auth state is now handled by router guard initialization
   await loadHistory()
   document.addEventListener('click', handleClickOutside)
 })

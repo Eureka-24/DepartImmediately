@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || null)
   const isLoading = ref(false)
   const error = ref(null)
+  const initialized = ref(false)
 
   // Getters
   const isLoggedIn = computed(() => !!token.value && !!user.value)
@@ -81,10 +82,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Initialize auth state on store creation
-  function init() {
+  async function init() {
     if (token.value) {
-      fetchProfile()
+      await fetchProfile()
     }
+    initialized.value = true
   }
 
   return {
@@ -93,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     isLoading,
     error,
+    initialized,
     // Getters
     isLoggedIn,
     // Actions

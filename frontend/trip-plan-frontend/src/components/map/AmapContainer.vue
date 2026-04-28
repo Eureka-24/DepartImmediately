@@ -375,38 +375,29 @@ async function drawRoute(routeData) {
     poiPositions.push({ index: i, poi, position })
   }
 
-  // 批量地理编码未解析的地址（最多等待3秒）
-  const uncodedPositions = poiPositions.filter(p => p.position === null && p.poi.location)
+  // 批量地理编码未解析的地址
+  const uncodedPositions = poiPositions.filter(p => !p.position && p.poi.location)
+  console.log('[AmapContainer] cityNames[props.city]:', cityNames[props.city], 'props.city:', props.city)
   if (uncodedPositions.length > 0) {
     console.log('[AmapContainer] need to geocode', uncodedPositions.length, 'addresses')
-    const geoPromises = uncodedPositions.map((p, idx) => {
-      return new Promise(async (resolve) => {
-        const timeout = setTimeout(() => {
-          console.log('[AmapContainer] geocode timeout for:', p.poi.location)
-          resolve(null)
-        }, 3000)
+    console.log('[AmapContainer] uncoded addresses:', uncodedPositions.map(p => p.poi.location))
 
-        try {
-          const pos = await geocodeAddress(p.poi.location, cityNames[props.city] || '')
-          clearTimeout(timeout)
-          p.position = pos
-          console.log('[AmapContainer] geocoded:', p.poi.name, '->', pos)
-          resolve(pos)
-        } catch (e) {
-          clearTimeout(timeout)
-          console.log('[AmapContainer] geocode error for:', p.poi.name, e)
-          resolve(null)
-        }
-      })
-    })
-
-    await Promise.all(geoPromises)
+    // 逐个地理编码，同步等待结果
+    for (const p of uncodedPositions) {
+      console.log('[AmapContainer] geocoding:', p.poi.location, 'with city:', cityNames[props.city])
+      const pos = await geocodeAddress(p.poi.location, cityNames[props.city] || '')
+      console.log('[AmapContainer] geocoded result for', p.poi.name, ':', pos)
+      p.position = pos
+    }
   }
 
   // 收集有效的路径点
   poiPositions.forEach(p => {
     if (p.position) {
       path.push(p.position)
+      console.log('[AmapContainer] path point added:', p.poi.name, '->', p.position.lng, p.position.lat)
+    } else {
+      console.log('[AmapContainer] path point skipped (null):', p.poi.name)
     }
   })
 
@@ -419,6 +410,7 @@ async function drawRoute(routeData) {
   }
 
   if (path.length >= 2) {
+    console.log('[AmapContainer] drawing polyline with', path.length, 'points')
     // 绘制主路线
     const polyline = new window.AMap.Polyline({
       path: path,
@@ -457,8 +449,8 @@ async function drawRoute(routeData) {
     }
   }
 
-  // 显示 POI 标记
-  showPois(pois)
+  // 显示 POI 标记（等待异步 geocoding 完成）
+  await showPois(pois)
   setFitView()
 }
 
@@ -516,9 +508,8 @@ watch(() => props.city, (newCity) => {
 })
 
 watch(() => props.pois, (newPois) => {
-  if (newPois && newPois.length > 0 && isMapReady.value) {
-    showPois(newPois)
-  }
+  // Don't trigger showPois here - drawRoute handles POI display
+  // This watcher is kept only for cases where routeData is not set but pois are provided directly
 }, { deep: true })
 
 watch(() => props.routeData, (newRoute) => {

@@ -31,7 +31,7 @@
             <div class="session-title">{{ item.title || getTripTitle(item) }}</div>
             <div class="session-date">{{ formatDate(item.createdAt) }}</div>
           </div>
-          <button class="delete-session-btn" @click.stop="handleDeleteSession(item.id)" title="删除">×</button>
+          <button class="delete-session-btn" @click.stop="handleDeleteSession(item.id, $event)" title="删除">×</button>
         </div>
         <div v-if="history.length === 0" class="session-item empty">
           <div class="session-title">暂无历史记录</div>
@@ -57,34 +57,40 @@
           <div class="form-grid">
             <div class="form-group">
               <label for="city">旅行城市</label>
-              <select id="city" v-model="formData.city" required>
-                <option value="">请选择城市</option>
-                <option value="beijing">北京</option>
-                <option value="shanghai">上海</option>
-                <option value="hangzhou">杭州</option>
-                <option value="chengdu">成都</option>
-                <option value="xian">西安</option>
-                <option value="chongqing">重庆</option>
-              </select>
+              <div class="custom-select" :class="{ open: cityDropdownOpen }" @click="toggleCityDropdown">
+                <div class="custom-select-trigger">
+                  <span>{{ cityOptions.find(o => o.value === formData.city)?.label || '请选择城市' }}</span>
+                  <span class="custom-select-arrow">▼</span>
+                </div>
+                <div v-if="cityDropdownOpen" class="custom-select-options">
+                  <div
+                    v-for="option in cityOptions"
+                    :key="option.value"
+                    class="custom-select-option"
+                    :class="{ selected: formData.city === option.value }"
+                    @click.stop="selectCity(option.value)"
+                  >
+                    {{ option.label }}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="form-group">
               <label for="startTime">出发时间</label>
-              <input
-                type="datetime-local"
-                id="startTime"
+              <DateTimePicker
                 v-model="formData.startTime"
-                required
+                id="startTime"
+                placeholder="选择出发时间"
               />
             </div>
 
             <div class="form-group">
               <label for="endTime">结束时间</label>
-              <input
-                type="datetime-local"
-                id="endTime"
+              <DateTimePicker
                 v-model="formData.endTime"
-                required
+                id="endTime"
+                placeholder="选择结束时间"
               />
             </div>
 
@@ -142,16 +148,32 @@
       <div class="loader"></div>
       <span class="loader-text">AI 规划中，请稍候...</span>
     </div>
+
+    <!-- 自定义删除确认弹窗 -->
+    <Teleport to="body">
+      <div v-if="deletePopup.show" class="delete-popup-overlay" @click="cancelDelete">
+        <div class="delete-popup" :style="deletePopup.position" @click.stop>
+          <div class="delete-popup-content">
+            <p class="delete-popup-text">确定要删除这个会话吗？</p>
+            <div class="delete-popup-actions">
+              <button class="delete-popup-cancel" @click="cancelDelete">取消</button>
+              <button class="delete-popup-confirm" @click="confirmDelete">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
 import AmapContainer from '../components/map/AmapContainer.vue'
 import ItineraryOutput from '../components/output/ItineraryOutput.vue'
+import DateTimePicker from '../components/common/DateTimePicker.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -162,8 +184,42 @@ const sidebarOpen = ref(false)
 const currentTripId = ref(null)
 const currentResult = ref(null)
 
+// 删除确认弹窗状态
+const deletePopup = ref({
+  show: false,
+  id: null,
+  position: { top: '0px', left: '0px' }
+})
+
 const isLoading = computed(() => tripStore.isLoading)
 const history = computed(() => tripStore.history || [])
+
+// 城市下拉选项
+const cityOptions = [
+  { value: 'beijing', label: '北京' },
+  { value: 'shanghai', label: '上海' },
+  { value: 'hangzhou', label: '杭州' },
+  { value: 'chengdu', label: '成都' },
+  { value: 'xian', label: '西安' },
+  { value: 'chongqing', label: '重庆' }
+]
+
+const cityDropdownOpen = ref(false)
+
+function toggleCityDropdown() {
+  cityDropdownOpen.value = !cityDropdownOpen.value
+}
+
+function selectCity(value) {
+  formData.city = value
+  cityDropdownOpen.value = false
+}
+
+function handleClickOutside(event) {
+  if (!event.target.closest('.custom-select')) {
+    cityDropdownOpen.value = false
+  }
+}
 
 const formData = reactive({
   city: '',
@@ -178,6 +234,11 @@ onMounted(async () => {
     await authStore.fetchProfile()
   }
   await loadHistory()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 
 function toggleSidebar() {
@@ -264,12 +325,31 @@ function handleNewSession() {
   formData.preferences = ''
 }
 
-async function handleDeleteSession(id) {
-  if (!confirm('确定要删除这个会话吗？')) return
-  await tripStore.deleteSession(id)
-  if (currentTripId.value === id) {
-    handleNewSession()
+function handleDeleteSession(id, event) {
+  const rect = event.target.getBoundingClientRect()
+  deletePopup.value = {
+    show: true,
+    id: id,
+    position: {
+      top: `${rect.top - 80}px`,
+      left: `${rect.left - 60}px`
+    }
   }
+}
+
+async function confirmDelete() {
+  const id = deletePopup.value.id
+  deletePopup.value.show = false
+  if (id) {
+    await tripStore.deleteSession(id)
+    if (currentTripId.value === id) {
+      handleNewSession()
+    }
+  }
+}
+
+function cancelDelete() {
+  deletePopup.value.show = false
 }
 </script>
 
@@ -442,5 +522,153 @@ async function handleDeleteSession(id) {
 .session-item.empty:hover {
   transform: none;
   background: var(--glass);
+}
+
+/* 自定义城市选择下拉框样式 */
+.custom-select {
+  position: relative;
+  width: 100%;
+  cursor: pointer;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--card-bg, rgba(20, 30, 51, 0.6));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-md, 12px);
+  color: var(--text-primary, #e2e8f0);
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.custom-select-trigger:hover {
+  border-color: var(--amber, #f59e0b);
+}
+
+.custom-select.open .custom-select-trigger {
+  border-color: var(--amber, #f59e0b);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.custom-select-arrow {
+  font-size: 10px;
+  color: var(--text-muted, #94a3b8);
+  transition: transform 0.2s ease;
+}
+
+.custom-select.open .custom-select-arrow {
+  transform: rotate(180deg);
+}
+
+.custom-select-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--card-bg, rgba(20, 30, 51, 0.98));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-md, 12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  overflow: hidden;
+  animation: dropdownFadeIn 0.2s ease;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.custom-select-option {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--text-primary, #e2e8f0);
+  transition: all 0.15s ease;
+}
+
+.custom-select-option:hover {
+  background: var(--amber, #f59e0b);
+  color: var(--midnight-deep, #0a0e1a);
+}
+
+.custom-select-option.selected {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--amber, #f59e0b);
+}
+
+/* 删除确认弹窗 */
+.delete-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: transparent;
+}
+
+.delete-popup {
+  position: fixed;
+  z-index: 1001;
+  min-width: 160px;
+}
+
+.delete-popup-content {
+  background: var(--card-bg, rgba(20, 30, 51, 0.98));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-md, 12px);
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.delete-popup-text {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.delete-popup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.delete-popup-cancel,
+.delete-popup-confirm {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm, 8px);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.delete-popup-cancel {
+  background: transparent;
+  border-color: var(--card-border, rgba(255, 255, 255, 0.1));
+  color: var(--text-muted, #94a3b8);
+}
+
+.delete-popup-cancel:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.delete-popup-confirm {
+  background: var(--danger, #ef4444);
+  color: white;
+}
+
+.delete-popup-confirm:hover {
+  background: #dc2626;
 }
 </style>

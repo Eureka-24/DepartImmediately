@@ -257,10 +257,10 @@ CREATE TABLE trip_history (
 
 ### 4.1 Deepseek Function Calling 配置
 
-#### 4.1.1 双 Agent 架构
+#### 4.1.1 三 Agent 架构
 
 **Intent Agent（意图识别）**
-- 类型：LangChain LLM + Structured Output
+- 类型：LangChain LLM + JSON 解析
 - 输入：用户偏好描述 + 历史偏好数据
 - 输出：结构化意图数据
 - 无需工具调用
@@ -281,28 +281,32 @@ CREATE TABLE trip_history (
 
 **Planning Agent（旅行规划）**
 - 类型：LangGraph Prebuilt ReAct Agent
-- 输入：Intent Agent 输出的结构化意图
+- 输入：Intent Agent 输出的结构化意图 + POI 数据
 - 工具：search_pois, route_planning, get_user_preferences
-- 输出：最终路线规划
+- 输出：Markdown/自然语言旅行规划描述（**不直接输出 JSON**）
+
+**Structured Agent（结构化输出）**
+- 类型：LangChain LLM + JSON 解析
+- 输入：Planning Agent 输出的 Markdown 描述
+- 输出：标准 JSON 结构（routes, alternatives 等字段）
+- 职责：将自然语言转换为结构化 JSON，并进行验证
 
 ```javascript
-// Planning Agent 输出结构
+// Structured Agent 输出结构
 {
   routes: [{
+    day: 1,
+    date: "2026-04-29",
+    theme: "历史文化之旅",
     pois: [{
       name: "西湖",
-      lng: 120.148287,
-      lat: 30.265221,
-      arrival: "09:30",
+      time: "09:30",
       duration: 120,
-      transport: "步行",
-      reason: "杭州标志性景点，适合休闲"
-    }],
-    totalDuration: 540,
-    score: 0.95,
-    summary: "杭州一日休闲游路线"
+      description: "杭州标志性景点，适合休闲"
+    }]
   }],
-  alternatives: []
+  alternatives: [],
+  summary: "杭州一日休闲游路线"
 }
 ```
 
@@ -313,7 +317,8 @@ CREATE TABLE trip_history (
 | Agent 框架 | LangChain.js | 内置 ReAct Agent，开箱即用自动工具调用循环 |
 | LLM | Deepseek Chat (ChatOpenAI 兼容) | 支持 Function Calling |
 | Planning Agent | LangGraph Prebuilt ReAct Agent | 减少自行实现循环逻辑 |
-| Intent Agent | LangChain LLM + Structured Output | 纯 LLM，无需工具 |
+| Intent Agent | LangChain LLM + JSON 解析 | 纯 LLM，无需工具 |
+| Structured Agent | LangChain LLM + JSON 解析 | 专责格式化输出，提高 JSON 稳定性 |
 
 #### 4.1.3 可用工具（LangChain Tool）
 
@@ -429,11 +434,37 @@ const systemPrompt = `你是一位专业的旅行规划师，擅长根据用户�
    4.2 根据搜索结果，初步筛选 5-8 个候选 POI
    4.3 计算 POI 之间的路线（调用 route_planning）
    4.4 基于时间和偏好，优化 POI 顺序
-5. 生成最终路线规划
-6. 返回结构化结果
+   4.5 生成 Markdown/自然语言格式的旅行规划
+5. Structured Agent 处理
+   5.1 解析 Planning Agent 的 Markdown 输出
+   5.2 转换为标准 JSON 结构
+   5.3 验证 JSON 有效性，无效则重试或降级
+6. 返回结构化 JSON 结果给前端
 ```
 
-### 4.3 错误处理
+### 4.3 Structured Agent 设计
+
+#### 核心职责
+1. 接收 Planning Agent 的自然语言输出
+2. 解析并转换为标准 JSON 结构
+3. 验证 JSON 有效性，无效则重试或降级
+4. 返回结构化结果给前端
+
+#### 输入输出
+| 项目 | 说明 |
+|-----|------|
+| **输入** | Planning Agent 的 Markdown/文本输出 |
+| **输出** | 标准 JSON 结构（包含 routes, alternatives 等字段） |
+| **验证** | 失败时返回降级 JSON 或 error 标记 |
+
+#### 错误处理策略
+| 场景 | 处理方式 |
+|-----|---------|
+| JSON 解析成功 | 直接返回 |
+| JSON 解析失败 | 重试 1 次（调整 prompt） |
+| 重试仍失败 | 返回降级 JSON + error 标记，保留原始输出 |
+
+### 4.4 错误处理
 
 | 错误情况 | 处理方式 |
 |---------|---------|
@@ -443,6 +474,7 @@ const systemPrompt = `你是一位专业的旅行规划师，擅长根据用户�
 | 参数缺失 | 返回 400，提示缺少参数 |
 | Intent Agent 解析失败 | 返回 400，让用户重新描述需求 |
 | Planning Agent 工具调用失败 | 降级返回默认路线 |
+| Structured Agent 解析失败 | 重试 1 次，仍失败返回 error 标记 + 降级 JSON |
 
 ---
 

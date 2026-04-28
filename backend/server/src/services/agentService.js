@@ -1,10 +1,11 @@
 /**
  * AI Agent 核心服务
- * 串联 Intent Agent + Planning Agent，实现双 Agent 架构
+ * 串联 Intent Agent + Planning Agent + Structured Agent，实现三 Agent 架构
  */
 
 const intentAgent = require('./intentAgent');
 const planningAgent = require('./planningAgent');
+const structuredAgent = require('./structuredAgent');
 const { getUserPreferences } = require('./tools/userPrefs');
 const { searchPois, filterAndRankPois } = require('./tools/searchPois');
 const { defaultPopularRoute } = require('../config/prompts');
@@ -80,20 +81,35 @@ async function generatePlan({ city, startTime, endTime, preferences, userId }) {
     }
 
     // ========================================
-    // Step 4: Planning Agent - 生成旅行规划
+    // Step 4: Planning Agent - 生成旅行规划（Markdown 格式）
     // ========================================
     console.log('[Agent Service] Step 4: Planning Agent 生成规划...');
 
-    const planResult = await planningAgent.generatePlan({
+    const planningOutput = await planningAgent.generatePlan({
       intent,
       pois: candidatePois,
       userId,
     });
 
     console.log('[Agent Service] Planning 完成');
+    console.log('[Agent Service] Planning 输出预览:', planningOutput?.substring(0, 200));
 
     // ========================================
-    // Step 5: 后处理 - 添加 POI 位置信息
+    // Step 5: Structured Agent - 将 Markdown 转换为 JSON
+    // ========================================
+    console.log('[Agent Service] Step 5: Structured Agent 解析规划...');
+
+    let planResult;
+    if (planningOutput) {
+      planResult = await structuredAgent.parse(planningOutput);
+    } else {
+      planResult = defaultPopularRoute;
+    }
+
+    console.log('[Agent Service] Structured 完成');
+
+    // ========================================
+    // Step 6: 后处理 - 添加 POI 位置信息
     // ========================================
     if (planResult.routes && candidatePois.length > 0) {
       planResult.routes.forEach(route => {

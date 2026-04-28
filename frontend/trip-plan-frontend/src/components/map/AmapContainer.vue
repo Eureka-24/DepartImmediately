@@ -35,6 +35,8 @@ const isMapReady = ref(false)
 const map = shallowRef(null)
 const markers = shallowRef([])
 const polylines = shallowRef([])
+const geocoder = shallowRef(null)
+const geocodeCache = shallowRef(new Map())
 
 // 城市坐标映射
 const cityCoordinates = {
@@ -79,7 +81,7 @@ async function initMap() {
     const AMap = await AMapLoader.load({
       key: jsApiKey,
       version: '2.0',
-      plugins: ['AMap.Scale', 'AMap.ToolBar', 'AMap.Marker']
+      plugins: ['AMap.Scale', 'AMap.ToolBar', 'AMap.Marker', 'AMap.Geocoder']
     })
 
     // 设置应用标识
@@ -96,6 +98,15 @@ async function initMap() {
     // 添加控件
     mapInstance.addControl(new AMap.Scale())
     mapInstance.addControl(new AMap.ToolBar({ position: 'RB' }))
+
+    // 创建地理编码器
+    geocoder.value = new AMap.Geocoder({
+      radius: 1000,
+      extensions: 'base'
+    })
+
+    // 加载缓存
+    loadGeocodeCache()
 
     map.value = mapInstance
     isMapReady.value = true
@@ -136,25 +147,94 @@ function showMarker(lng, lat, options = {}) {
   return marker
 }
 
-// 显示 POI 标记列表
-function showPois(pois) {
+// 地理编码：将地址转换为坐标
+function geocodeAddress(address) {
+  return new Promise((resolve) => {
+    if (!geocoder.value || !address) {
+      resolve(null)
+      return
+    }
+
+    // 检查缓存
+    if (geocodeCache.value.has(address)) {
+      resolve(geocodeCache.value.get(address))
+      return
+    }
+
+    geocoder.value.getLocation(address, (status, result) => {
+      if (status === 'complete' && result.geocodes && result.geocodes.length > 0) {
+        const { lng, lat } = result.geocodes[0].location
+        const position = new window.AMap.LngLat(lng, lat)
+        geocodeCache.value.set(address, position)
+        saveGeocodeCache()
+        resolve(position)
+      } else {
+        console.warn('[AmapContainer] 地理编码失败:', address, status)
+        resolve(null)
+      }
+    })
+  })
+}
+
+// 保存地理编码缓存到 localStorage
+function saveGeocodeCache() {
+  try {
+    const cacheObj = Object.fromEntries(geocodeCache.value)
+    localStorage.setItem('amap_geo_cache', JSON.stringify(cacheObj))
+  } catch (e) {
+    console.warn('[AmapContainer] 缓存保存失败:', e)
+  }
+}
+
+// 从 localStorage 加载地理编码缓存
+function loadGeocodeCache() {
+  try {
+    const cached = localStorage.getItem('amap_geo_cache')
+    if (cached) {
+      const cacheObj = JSON.parse(cached)
+      for (const [address, pos] of Object.entries(cacheObj)) {
+        if (pos && pos.lng !== undefined && pos.lat !== undefined) {
+          geocodeCache.value.set(address, new window.AMap.LngLat(pos.lng, pos.lat))
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[AmapContainer] 缓存加载失败:', e)
+  }
+}
+
+// 显示 POI 标记列表（支持地址字符串或经纬度）
+async function showPois(pois) {
   if (!map.value || !pois || pois.length === 0) return
 
   clearMarkers()
 
-  pois.forEach((poi, index) => {
-    if (!poi.location) return
+  for (let i = 0; i < pois.length; i++) {
+    const poi = pois[i]
+    let position
 
-    const [lng, lat] = poi.location.split(',').map(Number)
-    if (isNaN(lng) || isNaN(lat)) return
+    if (!poi.location) continue
+
+    // 判断是经纬度格式还是地址字符串
+    if (poi.location.includes(',')) {
+      const [lng, lat] = poi.location.split(',').map(Number)
+      if (!isNaN(lng) && !isNaN(lat)) {
+        position = new window.AMap.LngLat(lng, lat)
+      }
+    } else {
+      // 地址字符串，需要地理编码
+      position = await geocodeAddress(poi.location)
+    }
+
+    if (!position) continue
 
     // 创建自定义标记
     const markerContent = document.createElement('div')
     markerContent.className = 'custom-marker'
-    markerContent.innerHTML = `<span class="marker-number">${index + 1}</span>`
+    markerContent.innerHTML = `<span class="marker-number">${i + 1}</span>`
 
     const marker = new window.AMap.Marker({
-      position: new window.AMap.LngLat(lng, lat),
+      position: position,
       content: markerContent,
       offset: new window.AMap.Pixel(-15, -30),
       extData: poi
@@ -163,7 +243,7 @@ function showPois(pois) {
     // 信息窗口
     marker.on('click', () => {
       const infoWindow = new window.AMap.InfoWindow({
-        content: createInfoWindowContent(poi, index),
+        content: createInfoWindowContent(poi, i),
         offset: new window.AMap.Pixel(0, -30)
       })
       infoWindow.open(map.value, marker.getPosition())
@@ -171,7 +251,7 @@ function showPois(pois) {
 
     map.value.add(marker)
     markers.value.push(marker)
-  })
+  }
 
   // 调整视野
   setFitView()
@@ -180,11 +260,11 @@ function showPois(pois) {
 // 创建信息窗口内容
 function createInfoWindowContent(poi, index) {
   const name = poi.name || '未知景点'
-  const type = poi.type || '景点'
-  const rating = poi.rating || 'N/A'
-  const arrival = poi.arrival || ''
-  const duration = poi.duration || 0
+  const rating = poi.rating || ''
+  const time = poi.time || ''
+  const duration = poi.duration || ''
   const reason = poi.reason || ''
+  const location = poi.location || ''
 
   return `
     <div class="info-window">
@@ -193,33 +273,51 @@ function createInfoWindowContent(poi, index) {
         <h3 class="info-window-title">${name}</h3>
       </div>
       <div class="info-window-body">
-        <div class="info-row"><span class="info-label">类型:</span> ${type}</div>
-        <div class="info-row"><span class="info-label">评分:</span> ${rating}</div>
-        ${arrival ? `<div class="info-row"><span class="info-label">到达:</span> ${arrival}</div>` : ''}
-        ${duration ? `<div class="info-row"><span class="info-label">时长:</span> ${duration}分钟</div>` : ''}
-        ${reason ? `<div class="info-row"><span class="info-label">推荐理由:</span> ${reason}</div>` : ''}
+        ${rating ? `<div class="info-row"><span class="info-label">评分:</span> ${rating}</div>` : ''}
+        ${time ? `<div class="info-row"><span class="info-label">时间:</span> ${time}</div>` : ''}
+        ${duration ? `<div class="info-row"><span class="info-label">时长:</span> ${duration}</div>` : ''}
+        ${reason ? `<div class="info-row"><span class="info-label">推荐:</span> ${reason}</div>` : ''}
+        ${location ? `<div class="info-row"><span class="info-label">地址:</span> ${location}</div>` : ''}
       </div>
     </div>
   `
 }
 
-// 绘制路线
-function drawRoute(route) {
-  if (!map.value || !route || !route.pois || route.pois.length === 0) return
+// 绘制路线（支持新的扁平 POI 结构）
+async function drawRoute(routeData) {
+  if (!map.value || !routeData) return
+
+  // 支持两种格式：1) routeData.routes 扁平数组  2) routeData.pois 数组
+  const pois = routeData.routes || routeData.pois || []
+  if (pois.length === 0) return
 
   clearPolylines()
 
+  // 收集所有坐标
   const path = []
-  route.pois.forEach(poi => {
-    if (poi.location) {
+  for (const poi of pois) {
+    if (!poi.location) continue
+
+    let position
+    if (poi.location.includes(',')) {
       const [lng, lat] = poi.location.split(',').map(Number)
       if (!isNaN(lng) && !isNaN(lat)) {
-        path.push(new window.AMap.LngLat(lng, lat))
+        position = new window.AMap.LngLat(lng, lat)
       }
+    } else {
+      position = await geocodeAddress(poi.location)
     }
-  })
 
-  if (path.length < 2) return
+    if (position) {
+      path.push(position)
+    }
+  }
+
+  if (path.length < 2) {
+    // 如果路径点不足2个，直接显示 POI
+    showPois(pois)
+    return
+  }
 
   // 绘制主路线
   const polyline = new window.AMap.Polyline({
@@ -259,7 +357,7 @@ function drawRoute(route) {
   }
 
   // 显示 POI 标记
-  showPois(route.pois)
+  showPois(pois)
   setFitView()
 }
 
@@ -305,6 +403,8 @@ function destroy() {
   }
   markers.value = []
   polylines.value = []
+  geocoder.value = null
+  geocodeCache.value.clear()
 }
 
 // 监听 props 变化

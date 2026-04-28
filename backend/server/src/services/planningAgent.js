@@ -1,12 +1,12 @@
 /**
  * Planning Agent 服务
  * 使用 LangGraph Prebuilt ReAct Agent 进行旅行规划
+ * 输出 Markdown 格式，由 Structured Agent 转换为 JSON
  */
 
 const { createReactAgent } = require('@langchain/langgraph/prebuilt');
 const { createPlanningLLM } = require('../config/llm');
 const { tools } = require('./tools');
-const { searchPois, filterAndRankPois } = require('./tools/searchPois');
 const { defaultPopularRoute } = require('../config/prompts');
 
 /**
@@ -42,23 +42,11 @@ const PLANNING_SYSTEM_PROMPT = `你是一位专业的旅行规划师，擅长根
 5. 提供备选方案
 
 【输出格式】
-你必须以 JSON 格式返回最终规划结果：
-{
-  "routes": [{
-    "pois": [{
-      "name": "景点名",
-      "location": "lng,lat",
-      "arrival": "09:30",
-      "duration": 120,
-      "transport": "步行",
-      "reason": "推荐理由"
-    }],
-    "totalDuration": 480,
-    "score": 0.95,
-    "summary": "路线总结"
-  }],
-  "alternatives": []
-}
+请以 Markdown 格式输出旅行规划，包含：
+- 每日行程安排（时间、景点、活动）
+- 推荐理由
+- 交通方式建议
+- 备选方案（如有）
 
 【约束】
 - 每个 POI 停留时间默认 60-180 分钟
@@ -166,6 +154,8 @@ class PlanningAgent {
 
   /**
    * 从 Agent 响应中提取结果
+   * 注意：现在 Planning Agent 输出 Markdown，不再输出 JSON
+   * 返回的 content 直接传给 Structured Agent 进行处理
    */
   extractResult(response) {
     const messages = response.messages || [];
@@ -173,63 +163,14 @@ class PlanningAgent {
 
     if (!lastMessage || !lastMessage.content) {
       console.error('[Planning Agent] 无法从响应中提取结果');
-      return defaultPopularRoute;
+      return null;
     }
 
     const content = lastMessage.content;
-    console.log('[Planning Agent] LLM 输出预览:', content.substring(0, 300));
+    console.log('[Planning Agent] 输出预览:', content);
 
-    try {
-      // 尝试解析 JSON
-      let result;
-
-      // 尝试提取 JSON 块
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) ||
-                        content.match(/```\s*([\s\S]*?)\s*```/) ||
-                        content.match(/(\{[\s\S]*\})/);
-
-      if (jsonMatch) {
-        result = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-      } else {
-        result = JSON.parse(content);
-      }
-
-      // 验证结果格式
-      if (!result.routes || !Array.isArray(result.routes)) {
-        console.warn('[Planning Agent] 结果格式异常，使用默认路线');
-        return defaultPopularRoute;
-      }
-
-      return result;
-    } catch (e) {
-      console.error('[Planning Agent] JSON 解析失败:', e.message);
-      console.error('[Planning Agent] 原始内容:', content);
-
-      // 尝试从内容中提取信息手动构建结果
-      return this.extractManualResult(content);
-    }
-  }
-
-  /**
-   * 从原始文本中手动提取结果
-   */
-  extractManualResult(content) {
-    // 简单的文本解析作为降级
-    return {
-      routes: [{
-        pois: [{
-          name: '规划结果解析失败',
-          arrival: '09:00',
-          duration: 120,
-          transport: '步行',
-          reason: '请稍后重试',
-        }],
-        totalDuration: 120,
-        score: 0.3,
-        summary: content.substring(0, 100),
-      }],
-      alternatives: [],
-    };
+    // 返回 Markdown 内容，由 Structured Agent 进行处理
+    return content;
   }
 
   /**
@@ -237,25 +178,18 @@ class PlanningAgent {
    */
   getFallbackResult(pois, city) {
     if (pois && pois.length > 0) {
-      return {
-        routes: [{
-          pois: pois.slice(0, 5).map((p, idx) => ({
-            name: p.name,
-            location: p.location,
-            arrival: `${9 + idx * 2}:00`,
-            duration: 120,
-            transport: '步行',
-            reason: '推荐景点',
-          })),
-          totalDuration: 480,
-          score: 0.5,
-          summary: `基于 ${city} 的热门景点生成的推荐路线`,
-        }],
-        alternatives: [],
-      };
+      return `# ${city} 旅行规划
+
+## 路线规划
+
+${pois.slice(0, 5).map((p, idx) => `- ${9 + idx * 2}:00 - ${p.name}`).join('\n')}
+
+这是一条基于热门景点的推荐路线。`;
     }
 
-    return defaultPopularRoute;
+    return `# 旅行规划
+
+抱歉，暂时无法生成规划，请稍后重试。`;
   }
 }
 

@@ -4,7 +4,7 @@
  */
 
 /**
- * 旅行规划师系统提示词
+ * 旅行规划师系统提示词（Planning Agent 使用）
  */
 const systemPrompt = `你是一位专业的旅行规划师，擅长根据用户需求规划个性化旅行路线。
 
@@ -28,22 +28,11 @@ const systemPrompt = `你是一位专业的旅行规划师，擅长根据用户�
 5. 提供备选方案
 
 【输出格式】
-必须返回 JSON 格式：
-{
-  "routes": [{
-    "pois": [{
-      "name": "景点名",
-      "arrival": "09:30",
-      "duration": 120,
-      "transport": "步行",
-      "reason": "推荐理由"
-    }],
-    "totalDuration": 480,
-    "score": 0.95,
-    "summary": "路线总结"
-  }],
-  "alternatives": [...]
-}
+请以 Markdown 格式输出旅行规划，包含：
+- 每日行程安排（时间、景点、活动）
+- 推荐理由
+- 交通方式建议
+- 备选方案（如有）
 
 【约束】
 - 每个 POI 停留时间默认 60-180 分钟
@@ -86,47 +75,98 @@ const routeOptimizationPrompt = `你是一位路线优化专家。请根据以�
 }`;
 
 /**
+ * Structured Agent 系统提示词
+ * 用于将 Markdown 格式的旅行规划转换为标准 JSON 结构
+ */
+const structuredAgentPrompt = `你是一个结构化旅行规划输出助手。你的任务是将输入的旅行规划文本（可能是 Markdown 格式）转换为严格的 JSON 格式。
+
+【输入】
+{input}
+
+【输出规则】
+1. 你必须输出一个有效的 JSON 对象，不能有任何 Markdown 格式标记（如 \`\`\`json、\`\`\` 等）
+2. 不要输出任何解释性文字，只输出纯 JSON
+3. JSON 必须符合以下结构：
+{
+  "routes": [
+    {
+      "name": "景点名称",
+      "location": "地址字符串（如：西直门外大街137号）",
+      "time": "计划时间（如：第一天（4月28日）17:00 — 19:00）",
+      "rating": "评分（如：4.8）",
+      "duration": "时长（如：约2小时）",
+      "description": "Markdown 格式详细描述，包含地址、交通、注意事项等",
+      "reason": "推荐理由，简短描述",
+      "transport": "交通信息（第一个景点为"起始点"，后续为交通方式描述）"
+    }
+  ],
+  "summary": "总体描述"
+}
+
+【重要说明】
+- routes 是扁平数组，按时间顺序排列，不是按天分组
+- location 使用地址字符串，不要使用经纬度
+- description 使用 Markdown 格式，可以包含换行和格式
+- transport 第一个 POI 固定为 "起始点"
+- 从 Markdown 中提取每个景点的完整信息
+
+【解析要求】
+- 从 Markdown 中提取每个景点的名称、地址、时间、评分、时长、描述
+- 如果 Markdown 中没有提供 rating，使用空字符串 ""
+- 如果 Markdown 中没有提供 duration，根据时间推算或使用默认值 "约2小时"
+- description 应包含 Markdown 格式的详细说明
+
+【错误处理】
+- 如果输入为空或无法解析，返回 { "routes": [], "summary": "解析失败" }
+- 确保 routes 数组至少有一个元素`;
+
+/**
  * 默认热门路线（降级方案）
  */
 const defaultPopularRoute = {
   routes: [
     {
-      pois: [
-        {
-          name: "当地热门景点A",
-          arrival: "09:00",
-          duration: 120,
-          transport: "步行",
-          reason: "不容错过的经典景点"
-        },
-        {
-          name: "当地热门景点B",
-          arrival: "11:00",
-          duration: 90,
-          transport: "地铁",
-          reason: "知名打卡地"
-        },
-        {
-          name: "特色美食街",
-          arrival: "12:30",
-          duration: 90,
-          transport: "步行",
-          reason: "品尝当地美食"
-        },
-        {
-          name: "当地热门景点C",
-          arrival: "14:00",
-          duration: 120,
-          transport: "公交",
-          reason: "必游之地"
-        }
-      ],
-      totalDuration: 420,
-      score: 0.7,
-      summary: "这是一条热门路线，包含当地最受欢迎的景点和美食。"
+      name: '当地热门景点A',
+      location: '当地热门景点A地址',
+      time: '第一天 09:00 — 11:00',
+      rating: '4.5',
+      duration: '约2小时',
+      description: '不容错过的经典景点，建议提前购票。\n\n**地址：** 景点A地址\n**交通：** 地铁直达',
+      reason: '经典地标，必游推荐',
+      transport: '起始点'
+    },
+    {
+      name: '当地热门景点B',
+      location: '当地热门景点B地址',
+      time: '第一天 11:30 — 13:00',
+      rating: '4.6',
+      duration: '约1.5小时',
+      description: '知名打卡地，适合拍照留念。\n\n**地址：** 景点B地址\n**交通：** 步行约10分钟',
+      reason: '网红打卡点，景色优美',
+      transport: '步行约10分钟'
+    },
+    {
+      name: '特色美食街',
+      location: '美食街地址',
+      time: '第一天 13:00 — 14:30',
+      rating: '4.7',
+      duration: '约1.5小时',
+      description: '品尝当地特色美食，多家老字号云集。\n\n**推荐美食：** 特色小吃、当地菜肴\n**地址：** 美食街地址',
+      reason: '美食爱好者天堂',
+      transport: '步行约5分钟'
+    },
+    {
+      name: '当地热门景点C',
+      location: '当地热门景点C地址',
+      time: '第一天 15:00 — 17:00',
+      rating: '4.8',
+      duration: '约2小时',
+      description: '必游之地，历史文化底蕴深厚。\n\n**地址：** 景点C地址\n**交通：** 地铁/公交直达',
+      reason: '历史文化遗迹',
+      transport: '地铁约20分钟'
     }
   ],
-  alternatives: []
+  summary: '这是一条热门路线，包含当地最受欢迎的景点和美食，适合首次来访的游客。'
 };
 
 module.exports = {
@@ -134,4 +174,5 @@ module.exports = {
   preferenceExtractionPrompt,
   routeOptimizationPrompt,
   defaultPopularRoute,
+  structuredAgentPrompt,
 };

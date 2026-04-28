@@ -216,12 +216,12 @@
 
 ---
 
-## Phase 4: AI Agent 核心（LangChain.js 双 Agent 架构） ✅ 完成
+## Phase 4: AI Agent 核心（LangChain.js 三 Agent 架构） ✅ 完成
 
 ### 技术方案变更
-- **原方案**: 单 Agent + 纯手写工具调用循环
-- **新方案**: 双 Agent (Intent + Planning) + LangChain.js
-- **理由**: LangChain.js 提供开箱即用的 ReAct Agent，自动处理工具调用循环
+- **原方案**: 双 Agent (Intent + Planning) + LangChain.js
+- **新方案**: 三 Agent (Intent + Planning + Structured) + LangChain.js
+- **理由**: Planning Agent 输出 Markdown，Structured Agent 负责将 Markdown 转换为 JSON，提高 JSON 输出的稳定性
 
 ### 4.1 依赖安装与配置 ✅
 
@@ -292,11 +292,12 @@
   - 创建 src/services/planningAgent.js
   - 使用 LangGraph createReactAgent
   - 绑定所有工具
+  - 输出 Markdown/自然语言格式（不直接输出 JSON）
 
 任务 4.4.2: 系统提示词 ✅
   - 包含旅行规划角色定义
   - 工具使用说明
-  - 输出格式要求（routes, alternatives）
+  - 输出 Markdown 格式的旅行规划描述（移除 JSON 输出要求）
   - API 限流处理说明
 
 任务 4.4.3: 工具调用测试 ✅
@@ -305,38 +306,57 @@
   - 修复高德 API v3/v4 版本差异
 ```
 
-### 4.5 Agent Service 与路由 ✅
+### 4.5 Structured Agent（结构化输出） ✅
 
 ```
-任务 4.5.1: Agent Service（编排主逻辑） ✅
-  - 创建 src/services/agentService.js
-  - 串联: 用户偏好 → Intent Agent → Planning Agent
+任务 4.5.1: Structured Agent 实现 ✅
+  - 新建 src/services/structuredAgent.js
+  - 使用 LangChain LLM + JSON 解析
+  - 接收 Planning Agent 的 Markdown 输出
+  - 转换为标准 JSON 结构
+
+任务 4.5.2: 系统提示词 ✅
+  - 包含结构化输出角色定义
+  - JSON Schema 定义（routes, alternatives, summary 等字段）
+  - 规则说明：严格输出 JSON，不要 Markdown
+
+任务 4.5.3: 错误处理与重试 ✅
+  - JSON 解析失败重试 1 次
+  - 重试仍失败返回降级 JSON + error 标记
+```
+
+### 4.6 Agent Service 与路由 ✅
+
+```
+任务 4.6.1: Agent Service（编排主逻辑） ✅
+  - 更新 src/services/agentService.js
+  - 串联: 用户偏好 → Intent Agent → Planning Agent → Structured Agent
   - 保存到 trip_history
 
-任务 4.5.2: Agent 路由 ✅
+任务 4.6.2: Agent 路由 ✅
   - 创建 src/routes/agent.js
   - POST /api/agent/plan
   - JWT 验证
   - 请求体验证
 ```
 
-### 4.6 错误处理与降级 ✅
+### 4.7 错误处理与降级 ✅
 
 ```
-任务 4.6.1: 超时控制 ✅
+任务 4.7.1: 超时控制 ✅
   - Deepseek API 超时 15s
   - 降级返回默认路线
 
-任务 4.6.2: API 失败降级 ✅
+任务 4.7.2: API 失败降级 ✅
   - 高德 API 返回空时返回友好提示
   - Planning Agent 工具调用失败降级
-  - API 限流时停止调用并使用已有数据
+  - Structured Agent 解析失败降级 + error 标记
 
-任务 4.6.3: 参数验证 ✅
+任务 4.7.3: 参数验证 ✅
   - Intent Agent 解析失败返回 400
 ```
 
-**验收: POST /api/agent/plan 返回完整路线规划** ✅
+**验收: POST /api/agent/plan 返回完整路线规划（JSON 格式）** ✅ 
 
 ---
 

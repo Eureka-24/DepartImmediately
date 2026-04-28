@@ -52,8 +52,19 @@ function createPlanningLLM() {
   });
 }
 
+/**
+ * Structured Agent 专用的 LLM（JSON 解析）
+ */
+function createStructuredLLM() {
+  return createDeepseekLLM({
+    temperature: 0.1, // 结构性输出需要低温度
+    maxTokens: 2000,
+  });
+}
+
 module.exports = {
   createDeepseekLLM,
   createIntentLLM,
   createPlanningLLM,
+  createStructuredLLM,
 };

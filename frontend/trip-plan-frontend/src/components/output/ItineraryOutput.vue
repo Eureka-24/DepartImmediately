@@ -50,76 +50,59 @@ function formatResult(result) {
   }
 
   const lines = []
-  const route = result.routes[0]
 
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   lines.push('        🚀 智能旅行路线规划')
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   lines.push('')
 
-  // 基本信息
-  if (result.city) {
-    lines.push(`📍 目的地: ${result.city}`)
-  }
-  if (result.startTime && result.endTime) {
-    lines.push(`📅 时间: ${formatDateTime(result.startTime)} - ${formatDateTime(result.endTime)}`)
-  }
-  if (route.totalDuration) {
-    lines.push(`⏱️  总时长: ${formatDuration(route.totalDuration)}`)
-  }
-  if (route.score) {
-    lines.push(`✨ 推荐指数: ${formatScore(route.score)}`)
-  }
-  lines.push('')
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-  lines.push('')
-
-  // POI 列表
-  if (route.pois && route.pois.length > 0) {
+  // 遍历扁平 routes 数组
+  if (result.routes && result.routes.length > 0) {
     lines.push('📌 推荐路线:')
     lines.push('')
 
-    route.pois.forEach((poi, index) => {
+    result.routes.forEach((poi, index) => {
       const num = index + 1
       lines.push(`  ${num}. ${poi.name || '未知景点'}`)
-      if (poi.arrival) {
-        lines.push(`     🕐 到达: ${poi.arrival}`)
+      if (poi.time) {
+        lines.push(`     🕐 时间: ${poi.time}`)
+      }
+      if (poi.rating) {
+        lines.push(`     ⭐ 评分: ${poi.rating}`)
       }
       if (poi.duration) {
-        lines.push(`     ⏳ 停留: ${poi.duration} 分钟`)
+        lines.push(`     ⏳ 停留: ${poi.duration}`)
+      }
+      if (poi.reason) {
+        lines.push(`     💡 推荐: ${poi.reason}`)
       }
       if (poi.transport) {
         lines.push(`     🚶 交通: ${poi.transport}`)
       }
-      if (poi.reason) {
-        lines.push(`     💡 ${poi.reason}`)
-      }
       if (poi.location) {
-        const [lng, lat] = poi.location.split(',')
-        lines.push(`     📍 坐标: ${parseFloat(lng).toFixed(4)}, ${parseFloat(lat).toFixed(4)}`)
+        lines.push(`     📍 地址: ${poi.location}`)
+      }
+      // 显示 description（如果是 Markdown 格式的详细描述）
+      if (poi.description) {
+        lines.push('')
+        lines.push(`     📝 详情:`)
+        const descLines = poi.description.split('\n')
+        descLines.forEach(line => {
+          // 移除 Markdown 格式符号使文本更清晰
+          const cleanLine = line.replace(/\*\*/g, '').replace(/^- /g, '   • ')
+          lines.push(`        ${cleanLine}`)
+        })
       }
       lines.push('')
     })
   }
 
   // 路线总结
-  if (route.summary) {
+  if (result.summary) {
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     lines.push('')
     lines.push('📝 路线总结:')
-    lines.push(`   ${route.summary}`)
-    lines.push('')
-  }
-
-  // 备选方案
-  if (result.alternatives && result.alternatives.length > 0) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    lines.push('')
-    lines.push('🔄 备选方案:')
-
-    result.alternatives.forEach((alt, index) => {
-      lines.push(`   ${index + 1}. ${alt.name || '备选路线'} - ${alt.reason || ''}`)
-    })
+    lines.push(`   ${result.summary}`)
     lines.push('')
   }
 

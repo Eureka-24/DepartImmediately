@@ -209,11 +209,16 @@ async function showPois(pois) {
 
   clearMarkers()
 
+  const total = pois.length
+
   for (let i = 0; i < pois.length; i++) {
     const poi = pois[i]
     let position
 
-    if (!poi.location) continue
+    if (!poi.location) {
+      console.warn('[AmapContainer] POI 缺少 location:', poi.name)
+      continue
+    }
 
     // 判断是经纬度格式还是地址字符串
     if (poi.location.includes(',')) {
@@ -226,17 +231,52 @@ async function showPois(pois) {
       position = await geocodeAddress(poi.location)
     }
 
-    if (!position) continue
+    if (!position) {
+      console.warn('[AmapContainer] 无法获取 POI 坐标:', poi.name, poi.location)
+      continue
+    }
 
-    // 创建自定义标记
+    // 判断标记类型：起始点、终点、中间点
+    const isStart = i === 0
+    const isEnd = i === total - 1 && total > 1
+    const markerColor = isStart ? '#22c55e' : (isEnd ? '#ef4444' : '#f59e0b')
+
+    // 创建自定义标记容器
     const markerContent = document.createElement('div')
-    markerContent.className = 'custom-marker'
-    markerContent.innerHTML = `<span class="marker-number">${i + 1}</span>`
+    markerContent.className = 'poi-marker-container'
+
+    // 创建标记主体
+    const markerInner = document.createElement('div')
+    markerInner.className = 'poi-marker'
+    markerInner.style.backgroundColor = markerColor
+    if (isStart || isEnd) {
+      markerInner.style.width = '36px'
+      markerInner.style.height = '36px'
+    }
+
+    // 标记上的文字
+    const markerText = document.createElement('span')
+    markerText.className = 'poi-marker-text'
+    if (isStart) {
+      markerText.textContent = '起'
+    } else if (isEnd) {
+      markerText.textContent = '终'
+    } else {
+      markerText.textContent = i + 1
+    }
+    markerInner.appendChild(markerText)
+    markerContent.appendChild(markerInner)
+
+    // POI 名称标签
+    const nameLabel = document.createElement('div')
+    nameLabel.className = 'poi-name-label'
+    nameLabel.textContent = poi.name || '未知景点'
+    markerContent.appendChild(nameLabel)
 
     const marker = new window.AMap.Marker({
       position: position,
       content: markerContent,
-      offset: new window.AMap.Pixel(-15, -30),
+      offset: new window.AMap.Pixel(-30, -60),
       extData: poi
     })
 
@@ -495,23 +535,43 @@ defineExpose({
 
 <style>
 /* 全局样式 - 信息窗口和标记 */
-.custom-marker {
-  width: 30px;
-  height: 30px;
+.poi-marker-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.poi-marker {
+  width: 28px;
+  height: 28px;
   background: linear-gradient(135deg, var(--amber) 0%, var(--coral) 100%);
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.custom-marker .marker-number {
+.poi-marker-text {
   transform: rotate(45deg);
-  color: var(--midnight-deep, #0a0e1a);
-  font-size: 12px;
+  color: #fff;
+  font-size: 11px;
   font-weight: 600;
+}
+
+.poi-name-label {
+  margin-top: 4px;
+  padding: 2px 6px;
+  background: rgba(20, 30, 51, 0.9);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 
 .info-window {

@@ -7,7 +7,8 @@ const axios = require('axios');
 const config = require('../../config');
 
 // 高德路径规划 API 端点
-const AMAP_DIRECTION_API = 'https://restapi.amap.com/v3/direction/';
+const AMAP_DIRECTION_API_V3 = 'https://restapi.amap.com/v3/direction/';
+const AMAP_DIRECTION_API_V4 = 'https://restapi.amap.com/v4/direction/';
 
 /**
  * 出行方式映射
@@ -16,8 +17,8 @@ const AMAP_DIRECTION_API = 'https://restapi.amap.com/v3/direction/';
 const MODE_MAP = {
   'walking': 'walking',
   'driving': 'driving',
-  'riding': 'riding',
-  'transfer': 'transit',
+  'riding': 'bicycling', // 骑行在 v4 API 中是 bicycling
+  'transfer': 'transit/integrated', // 公交规划端点
 };
 
 /**
@@ -35,9 +36,11 @@ const MODE_CHINESE = {
  * @param {string} origin - 起点经纬度，格式：lng,lat
  * @param {string} destination - 终点经纬度，格式：lng,lat
  * @param {string} mode - 出行方式：walking/driving/riding/transfer
+ * @param {Object} options - 额外参数
+ * @param {string} options.city - 城市名称（公交规划必需）
  * @returns {Promise<Object>} 路线规划结果
  */
-async function routePlanning(origin, destination, mode = 'walking') {
+async function routePlanning(origin, destination, mode = 'walking', options = {}) {
   // 验证坐标格式
   if (!origin || !destination) {
     throw new Error('起点和终点坐标不能为空');
@@ -51,22 +54,59 @@ async function routePlanning(origin, destination, mode = 'walking') {
   }
 
   const apiMode = MODE_MAP[mode] || 'walking';
-  const apiUrl = `${AMAP_DIRECTION_API}${apiMode}`;
+
+  // 判断使用 v3 还是 v4 API
+  let apiUrl;
+  if (mode === 'riding') {
+    // 骑行使用 v4 API
+    apiUrl = `${AMAP_DIRECTION_API_V4}bicycling`;
+  } else if (mode === 'transfer') {
+    // 公交使用 v3 API 的 integrated 端点
+    apiUrl = `${AMAP_DIRECTION_API_V3}transit/integrated`;
+  } else {
+    // 步行、驾车使用 v3 API
+    apiUrl = `${AMAP_DIRECTION_API_V3}${apiMode}`;
+  }
 
   try {
+    const params = {
+      key: config.amap.webServiceKey,
+      origin: origin,
+      destination: destination,
+      output: 'json',
+    };
+
+    // 公交规划需要 city 参数
+    if (mode === 'transfer' && options.city) {
+      params.city = options.city;
+    }
+
     const response = await axios.get(apiUrl, {
-      params: {
-        key: config.amap.webServiceKey,
-        origin: origin.replace(/,/g, ''), // 移除逗号，高德API格式为 lnglat
-        destination: destination.replace(/,/g, ''),
-        output: 'json',
-      },
+      params,
       timeout: 10000, // 10秒超时
     });
 
-    if (response.data.status !== '1') {
-      console.error('高德路径规划 API 返回错误:', response.data.info);
-      throw new Error(`路径规划失败: ${response.data.info || '未知错误'}`);
+    // 根据不同的 API 响应格式检查状态
+    let statusOk = false;
+    let errorInfo = '';
+
+    if (mode === 'riding') {
+      // v4 API 骑行
+      statusOk = response.data.errcode === 0;
+      errorInfo = response.data.errmsg || '';
+    } else if (mode === 'transfer') {
+      // 公交
+      statusOk = response.data.status === '1';
+      errorInfo = response.data.info || '';
+    } else {
+      // 步行、驾车
+      statusOk = response.data.status === '1';
+      errorInfo = response.data.info || '';
+    }
+
+    if (!statusOk) {
+      console.error(`高德路径规划 API 返回错误: ${errorInfo}`);
+      throw new Error(`路径规划失败: ${errorInfo || '未知错误'}`);
     }
 
     // 解析路径规划结果
@@ -93,8 +133,8 @@ async function routePlanning(origin, destination, mode = 'walking') {
 function parseRouteResult(data, mode) {
   const apiMode = MODE_MAP[mode] || 'walking';
 
-  if (apiMode === 'walking' || apiMode === 'riding') {
-    // 步行或骑行
+  if (mode === 'walking') {
+    // 步行
     const route = data.paths?.[0];
     if (!route) {
       return {
@@ -112,7 +152,27 @@ function parseRouteResult(data, mode) {
       strategy: data.tag || '',
       transport: MODE_CHINESE[mode] || mode,
     };
-  } else if (apiMode === 'driving') {
+  } else if (mode === 'riding') {
+    // 骑行 (v4 API)
+    // v4 API 返回结构: { errcode: 0, data: { paths: [...] } }
+    const route = data.data?.paths?.[0];
+    if (!route) {
+      return {
+        distance: 0,
+        duration: 0,
+        path: [],
+        strategy: '',
+      };
+    }
+
+    return {
+      distance: parseInt(route.distance) || 0,
+      duration: parseInt(route.duration) || 0,
+      path: parsePathToCoordinates(route.steps || []),
+      strategy: '',
+      transport: MODE_CHINESE[mode] || mode,
+    };
+  } else if (mode === 'driving') {
     // 驾车
     const route = (data.routes && data.routes.route) || data.paths?.[0];
     if (!route) {
@@ -131,10 +191,10 @@ function parseRouteResult(data, mode) {
       strategy: data.tag || '',
       transport: MODE_CHINESE[mode] || mode,
     };
-  } else if (apiMode === 'transit') {
-    // 公交（公共交通）
-    const route = data.routes?.[0];
-    if (!route) {
+  } else if (mode === 'transfer') {
+    // 公交 (v3 API integrated)
+    const route = data.route;
+    if (!route || !route.transits || route.transits.length === 0) {
       return {
         distance: 0,
         duration: 0,
@@ -143,12 +203,14 @@ function parseRouteResult(data, mode) {
       };
     }
 
+    const transit = route.transits[0];
     return {
       distance: parseInt(route.distance) || 0,
-      duration: parseInt(route.time) || 0,
+      duration: parseInt(transit.duration) || 0,
       path: [],
-      segments: parseTransitSegments(route.segments || []),
+      segments: parseTransitSegments(transit.segments || []),
       transport: MODE_CHINESE[mode] || mode,
+      cost: transit.cost || 0, // 费用
     };
   }
 
@@ -225,6 +287,7 @@ function parseTransitSegments(segments) {
     startStation: seg.start_name || '',
     endStation: seg.end_name || '',
     duration: parseInt(seg.time) || 0,
+    distance: parseInt(seg.walking?.distance) || 0,
   }));
 }
 

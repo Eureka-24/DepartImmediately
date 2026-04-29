@@ -24,12 +24,20 @@
           v-for="item in history"
           :key="item.id"
           class="session-item"
-          :class="{ active: currentTripId === item.id }"
+          :class="{ active: currentTripId === item.id, pending: item.status === 'pending' || item.status === 'processing' }"
           @click="loadTrip(item)"
         >
           <div class="session-content">
-            <div class="session-title">{{ item.title || getTripTitle(item) }}</div>
+            <div class="session-title">
+              {{ item.title || getTripTitle(item) }}
+              <span v-if="item.status === 'pending'" class="status-badge pending">规划中</span>
+              <span v-else-if="item.status === 'processing'" class="status-badge processing">处理中</span>
+              <span v-else-if="item.status === 'failed'" class="status-badge failed">失败</span>
+            </div>
             <div class="session-date">{{ formatDate(item.createdAt) }}</div>
+          </div>
+          <div class="session-status-indicator" v-if="item.status === 'pending' || item.status === 'processing'">
+            <div class="spinner"></div>
           </div>
           <button class="delete-session-btn" @click.stop="handleDeleteSession(item.id, $event)" title="删除">×</button>
         </div>
@@ -127,8 +135,8 @@
           <AmapContainer
             ref="mapRef"
             :city="formData.city"
-            :pois="currentResult?.routes || []"
-            :routeData="currentResult || null"
+            :pois="currentResult?.result?.routes || []"
+            :routeData="currentResult?.result || null"
             @map-ready="onMapReady"
           />
         </div>
@@ -137,7 +145,8 @@
       <section class="output-section">
         <div class="output-container">
           <ItineraryOutput
-            :result="currentResult"
+            :result="currentResult?.result || null"
+            :status="currentResult?.status || null"
             placeholder="请填写上方表单，点击「生成路线规划」开始智能规划..."
           />
         </div>
@@ -182,7 +191,13 @@ const tripStore = useTripStore()
 const mapRef = ref(null)
 const sidebarOpen = ref(false)
 const currentTripId = ref(null)
-const currentResult = ref(null)
+
+// currentResult 根据 currentTripId 从 history 中自动获取最新数据
+const currentResult = computed(() => {
+  if (!currentTripId.value) return null
+  const trip = history.value.find(h => h.id === currentTripId.value)
+  return trip || null
+})
 
 // 删除确认弹窗状态
 const deletePopup = ref({
@@ -268,7 +283,7 @@ async function loadHistory() {
 
 function loadTrip(trip) {
   currentTripId.value = trip.id || trip._id
-  currentResult.value = trip.result
+  // currentResult 现在是 computed，会自动从 history 中获取最新数据
 
   formData.city = trip.city || ''
   formData.startTime = trip.startTime || ''
@@ -298,8 +313,7 @@ async function handleSubmit() {
     console.log('[HomeView] handleSubmit result:', result)
     console.log('[HomeView] result.result:', result.result)
     currentTripId.value = result.id || result._id || Date.now()
-    currentResult.value = result.result || result
-    console.log('[HomeView] currentResult set to:', currentResult.value)
+    // currentResult 现在是 computed，会自动从 history 中获取最新数据
     await loadHistory()
   }
 }
@@ -315,7 +329,7 @@ function handleLogout() {
 
 function handleNewSession() {
   currentTripId.value = null
-  currentResult.value = null
+  // currentResult 现在是 computed，会自动返回 null
   formData.city = ''
   formData.startTime = ''
   formData.endTime = ''
@@ -445,6 +459,60 @@ function cancelDelete() {
 .session-content {
   flex: 1;
   overflow: hidden;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.status-badge.pending {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--amber, #f59e0b);
+}
+
+.status-badge.processing {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.status-badge.failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.session-status-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(245, 158, 11, 0.2);
+  border-top-color: var(--amber, #f59e0b);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.session-item.pending {
+  opacity: 0.8;
+}
+
+.session-item.pending .session-title {
+  color: var(--text-muted, #94a3b8);
 }
 
 .delete-session-btn {

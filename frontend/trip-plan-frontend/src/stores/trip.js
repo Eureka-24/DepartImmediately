@@ -10,6 +10,7 @@ export const useTripStore = defineStore('trip', () => {
   const history = ref([])
   const isLoading = ref(false)
   const error = ref(null)
+  const pendingTasks = ref(new Set()) // 记录正在异步等待的任务ID
 
   // Actions
   async function submitPlan(city, startTime, endTime, preferences) {
@@ -17,7 +18,7 @@ export const useTripStore = defineStore('trip', () => {
     error.value = null
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/agent/plan`, {
+      const response = await axios.post(`${API_BASE_URL}/agent/plan_async`, {
         city,
         startTime,
         endTime,
@@ -30,30 +31,23 @@ export const useTripStore = defineStore('trip', () => {
 
       console.log('[tripStore] API response:', response.data)
 
-      // 解析后端响应结构: { success: true, data: { id, city, startTime, endTime, result } }
+      // 解析后端响应结构: { success: true, data: { id, status: 'pending' } }
       const responseData = response.data
       const tripData = responseData.data || responseData
-      const result = tripData.result || tripData
 
-      console.log('[tripStore] tripData:', tripData)
-      console.log('[tripStore] result (inner):', result)
-
-      currentTrip.value = tripData.result || tripData
-
-      // Add to history - 确保 result 结构正确
+      // 添加到历史记录（初始状态为 pending）
       const historyItem = {
         id: tripData.id || Date.now(),
         city: tripData.city || city,
         startTime: tripData.startTime || startTime,
         endTime: tripData.endTime || endTime,
         preferences: tripData.preferences || preferences,
-        result: result, // 这是实际的路线规划结果 { routes, alternatives }
+        result: null, // 异步任务，结果尚未生成
+        status: 'pending',
         createdAt: new Date().toISOString()
       }
 
-      console.log('[tripStore] historyItem:', historyItem)
-
-      // 在添加前检查是否已存在
+      // 检查是否已存在
       const existingIndex = history.value.findIndex(h => h.id === historyItem.id)
       if (existingIndex >= 0) {
         history.value[existingIndex] = historyItem
@@ -61,7 +55,13 @@ export const useTripStore = defineStore('trip', () => {
         history.value.unshift(historyItem)
       }
 
-      console.log('[tripStore] returning tripData:', tripData)
+      // 标记为待处理任务
+      pendingTasks.value.add(historyItem.id)
+
+      // 启动轮询
+      pollTaskStatus(historyItem.id)
+
+      console.log('[tripStore] historyItem:', historyItem)
       return tripData
     } catch (err) {
       error.value = err.response?.data?.error || err.message || 'Failed to generate trip plan'
@@ -70,6 +70,71 @@ export const useTripStore = defineStore('trip', () => {
     } finally {
       isLoading.value = false
     }
+  }
+
+  // 轮询任务状态
+  async function pollTaskStatus(taskId, maxAttempts = 60) {
+    let attempts = 0
+    const pollInterval = 2000 // 2秒轮询一次
+
+    const poll = async () => {
+      if (!pendingTasks.value.has(taskId)) {
+        return // 任务已被取消或完成
+      }
+
+      attempts++
+      console.log(`[tripStore] Polling task ${taskId}, attempt ${attempts}`)
+
+      try {
+        const response = await axios.get(`${API_BASE_URL}/agent/task/${taskId}`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        })
+
+        const taskData = response.data?.data
+        if (!taskData) {
+          console.warn('[tripStore] Invalid task response')
+          return
+        }
+
+        // 更新历史记录中的状态和结果
+        const historyIndex = history.value.findIndex(h => h.id === taskId)
+        if (historyIndex >= 0) {
+          history.value[historyIndex] = {
+            ...history.value[historyIndex],
+            status: taskData.status,
+            result: taskData.result,
+          }
+        }
+
+        // 如果任务完成或失败，停止轮询
+        if (taskData.status === 'completed' || taskData.status === 'failed') {
+          pendingTasks.value.delete(taskId)
+          console.log(`[tripStore] Task ${taskId} ${taskData.status}`)
+          return
+        }
+
+        // 如果超过最大轮询次数，停止轮询
+        if (attempts >= maxAttempts) {
+          console.warn(`[tripStore] Task ${taskId} polling timeout`)
+          pendingTasks.value.delete(taskId)
+          if (historyIndex >= 0) {
+            history.value[historyIndex].status = 'failed'
+          }
+          return
+        }
+
+        // 继续轮询
+        setTimeout(poll, pollInterval)
+      } catch (err) {
+        console.error('[tripStore] Poll error:', err)
+        pendingTasks.value.delete(taskId)
+      }
+    }
+
+    // 启动第一轮轮询
+    setTimeout(poll, pollInterval)
   }
 
   async function loadHistory() {

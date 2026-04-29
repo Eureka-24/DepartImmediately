@@ -142,20 +142,42 @@ async function generatePlan({ city, startTime, endTime, preferences, userId }) {
 /**
  * 保存规划历史
  * @param {Object} params - 规划参数和结果
+ * @param {string} params.status - 状态: pending, processing, completed, failed
  * @returns {string} 历史记录 ID
  */
-function saveTripHistory({ userId, city, startTime, endTime, preferences, result }) {
+function saveTripHistory({ userId, city, startTime, endTime, preferences, result, status = 'completed' }) {
   const id = crypto.randomUUID();
-  const resultJson = JSON.stringify(result);
+  const resultJson = result ? JSON.stringify(result) : null;
   const preferencesJson = JSON.stringify(preferences);
 
   db.run(
-    `INSERT INTO trip_history (id, user_id, city, start_time, end_time, preferences, result)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, userId, city, startTime, endTime, preferencesJson, resultJson]
+    `INSERT INTO trip_history (id, user_id, city, start_time, end_time, preferences, result, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, userId, city, startTime, endTime, preferencesJson, resultJson, status]
   );
 
   return id;
+}
+
+/**
+ * 更新规划历史状态和结果
+ * @param {string} id - 历史记录 ID
+ * @param {string} status - 新状态
+ * @param {Object} result - 规划结果（可选）
+ */
+function updateTripHistory(id, status, result = null) {
+  if (result) {
+    const resultJson = JSON.stringify(result);
+    db.run(
+      `UPDATE trip_history SET status = ?, result = ? WHERE id = ?`,
+      [status, resultJson, id]
+    );
+  } else {
+    db.run(
+      `UPDATE trip_history SET status = ? WHERE id = ?`,
+      [status, id]
+    );
+  }
 }
 
 /**
@@ -183,7 +205,8 @@ function getTripHistory(userId, limit = 10) {
       startTime: record.start_time,
       endTime: record.end_time,
       preferences: parsedPreferences,
-      result: JSON.parse(record.result),
+      result: record.result ? JSON.parse(record.result) : null,
+      status: record.status || 'completed',
       createdAt: record.created_at,
     };
   });
@@ -192,5 +215,6 @@ function getTripHistory(userId, limit = 10) {
 module.exports = {
   generatePlan,
   saveTripHistory,
+  updateTripHistory,
   getTripHistory,
 };

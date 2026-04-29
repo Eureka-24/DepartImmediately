@@ -102,6 +102,106 @@ router.post('/plan', authMiddleware, async (req, res, next) => {
 });
 
 /**
+ * POST /api/agent/plan_async
+ * 异步生成旅行规划 - 立即返回 task_id，后台处理
+ * 需要 JWT 认证
+ */
+router.post('/plan_async', authMiddleware, async (req, res, next) => {
+  try {
+    // 验证请求参数
+    const params = validatePlanParams(req.body);
+    const { city, startTime, endTime, preferences } = params;
+    const userId = req.userId;
+
+    // 立即创建 pending 状态的历史记录
+    const historyId = agentService.saveTripHistory({
+      userId,
+      city,
+      startTime,
+      endTime,
+      preferences,
+      status: 'pending',
+    });
+
+    // 立即返回 task_id
+    res.json({
+      success: true,
+      data: {
+        id: historyId,
+        status: 'pending',
+      },
+    });
+
+    // 后台异步执行规划
+    setImmediate(async () => {
+      try {
+        // 更新状态为 processing
+        agentService.updateTripHistory(historyId, 'processing');
+
+        // 调用 Agent 服务生成规划
+        const result = await agentService.generatePlan({
+          city,
+          startTime,
+          endTime,
+          preferences,
+          userId,
+        });
+
+        // 更新状态为 completed
+        agentService.updateTripHistory(historyId, 'completed', result);
+      } catch (error) {
+        console.error('[plan_async] Background task failed:', error);
+        // 更新状态为 failed
+        agentService.updateTripHistory(historyId, 'failed');
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/agent/task/:taskId
+ * 获取任务状态和结果
+ * 需要 JWT 认证
+ */
+router.get('/task/:taskId', authMiddleware, async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const userId = req.userId;
+
+    const db = require('../db');
+    const records = db.query(
+      'SELECT * FROM trip_history WHERE id = ? AND user_id = ?',
+      [taskId, userId]
+    );
+
+    if (records.length === 0) {
+      throw createError.notFound('任务不存在');
+    }
+
+    const record = records[0];
+    const result = {
+      id: record.id,
+      city: record.city,
+      startTime: record.start_time,
+      endTime: record.end_time,
+      preferences: JSON.parse(record.preferences),
+      result: record.result ? JSON.parse(record.result) : null,
+      status: record.status,
+      createdAt: record.created_at,
+    };
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/agent/history
  * 获取用户的规划历史
  * 需要 JWT 认证

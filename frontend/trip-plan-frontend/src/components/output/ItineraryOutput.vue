@@ -7,7 +7,12 @@
       </button>
     </div>
     <div ref="outputContent" class="output-content">
-      <span v-if="!result" class="placeholder">{{ placeholder }}</span>
+      <span v-if="!result && (!status || status === 'pending' || status === 'processing')" class="placeholder pending-text">
+        <template v-if="status === 'processing'">正在规划路线，请稍候...</template>
+        <template v-else-if="status === 'pending'">路线规划已提交，等待处理...</template>
+        <template v-else>{{ placeholder }}</template>
+      </span>
+      <span v-else-if="!result" class="placeholder">{{ placeholder }}</span>
       <template v-else>
         <div class="routes-list">
           <div
@@ -75,6 +80,10 @@ import { ref, watch } from 'vue'
 const props = defineProps({
   result: {
     type: Object,
+    default: null
+  },
+  status: {
+    type: String,
     default: null
   },
   placeholder: {
@@ -207,6 +216,14 @@ watch(() => props.result, () => {
 .placeholder {
   color: var(--text-dim, #64748b);
   font-style: italic;
+}
+
+.pending-text {
+  color: var(--amber, #f59e0b);
+  font-style: normal;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .routes-list {

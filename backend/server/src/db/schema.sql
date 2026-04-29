@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS trip_history (
     start_time DATETIME NOT NULL,
     end_time DATETIME NOT NULL,
     preferences TEXT NOT NULL,
-    result TEXT NOT NULL,
+    result TEXT,
+    status TEXT DEFAULT 'pending',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );

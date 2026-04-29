@@ -17,7 +17,7 @@ export const useTripStore = defineStore('trip', () => {
     error.value = null
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/agent/plan_test`, {
+      const response = await axios.post(`${API_BASE_URL}/agent/plan`, {
         city,
         startTime,
         endTime,

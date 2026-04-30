@@ -22,3 +22,10 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# CLAUDE
+.claude
+.clawhub
+CLAUDE.md
+doc
+SPEC_simple_frontend.md

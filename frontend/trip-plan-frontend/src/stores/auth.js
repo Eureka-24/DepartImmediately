@@ -14,12 +14,12 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value && !!user.value)
 
   // Actions
-  async function login(email, password) {
+  async function login(username, password) {
     isLoading.value = true
     error.value = null
 
     try {
-      const data = await authApi.login(email, password)
+      const data = await authApi.login(username, password)
       token.value = data.token
       user.value = data.user
       localStorage.setItem('token', data.token)
@@ -32,12 +32,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function register(email, password) {
+  async function register(username, password) {
     isLoading.value = true
     error.value = null
 
     try {
-      await authApi.register(email, password)
+      await authApi.register(username, password)
       return true
     } catch (err) {
       error.value = err.message || '注册失败'
@@ -63,7 +63,7 @@ export const useAuthStore = defineStore('auth', () => {
       const data = await authApi.getProfile()
       user.value = {
         id: data.id,
-        email: data.email,
+        username: data.username,
         createdAt: data.createdAt,
         preferences: data.preferences,
       }

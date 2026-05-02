@@ -10,7 +10,7 @@
           </div>
         </div>
         <div class="user-info">
-          <span class="user-email">{{ authStore.user?.email || '未登录' }}</span>
+          <span class="user-email">{{ authStore.user?.username || '未登录' }}</span>
         </div>
       </div>
       <div class="session-header">

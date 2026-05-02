@@ -8,12 +8,12 @@
 
       <form class="auth-form" @submit.prevent="handleLogin">
         <div class="form-group">
-          <label for="email">邮箱</label>
+          <label for="username">用户名</label>
           <input
-            type="email"
-            id="email"
-            v-model="email"
-            placeholder="请输入邮箱"
+            type="text"
+            id="username"
+            v-model="username"
+            placeholder="请输入用户名"
             required
           />
         </div>
@@ -49,14 +49,14 @@ import { useAuthStore } from '../stores/auth'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const email = ref('')
+const username = ref('')
 const password = ref('')
 const error = ref('')
 
 async function handleLogin() {
   error.value = ''
 
-  const success = await authStore.login(email.value, password.value)
+  const success = await authStore.login(username.value, password.value)
 
   if (success) {
     router.push('/')

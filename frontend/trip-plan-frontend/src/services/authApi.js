@@ -7,23 +7,23 @@ import apiClient from './api'
 
 /**
  * 用户注册
- * @param {string} email - 用户邮箱
+ * @param {string} username - 用户名
  * @param {string} password - 用户密码
- * @returns {Promise<{token: string, user: {id: string, email: string}}>}
+ * @returns {Promise<{token: string, user: {id: string, username: string}}>}
  */
-export async function register(email, password) {
-  const data = await apiClient.post('/auth/register', { email, password })
+export async function register(username, password) {
+  const data = await apiClient.post('/auth/register', { username, password })
   return data
 }
 
 /**
  * 用户登录
- * @param {string} email - 用户邮箱
+ * @param {string} username - 用户名
  * @param {string} password - 用户密码
- * @returns {Promise<{token: string, user: {id: string, email: string}}>}
+ * @returns {Promise<{token: string, user: {id: string, username: string}}>}
  */
-export async function login(email, password) {
-  const data = await apiClient.post('/auth/login', { email, password })
+export async function login(username, password) {
+  const data = await apiClient.post('/auth/login', { username, password })
   return data
 }
 

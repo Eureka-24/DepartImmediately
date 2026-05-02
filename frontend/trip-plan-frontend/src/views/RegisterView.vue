@@ -8,12 +8,12 @@
 
       <form class="auth-form" @submit.prevent="handleRegister">
         <div class="form-group">
-          <label for="email">邮箱</label>
+          <label for="username">用户名</label>
           <input
-            type="email"
-            id="email"
-            v-model="email"
-            placeholder="请输入邮箱"
+            type="text"
+            id="username"
+            v-model="username"
+            placeholder="请输入用户名"
             required
           />
         </div>
@@ -27,17 +27,6 @@
             placeholder="请输入密码"
             required
             minlength="6"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="confirmPassword">确认密码</label>
-          <input
-            type="password"
-            id="confirmPassword"
-            v-model="confirmPassword"
-            placeholder="请再次输入密码"
-            required
           />
         </div>
 
@@ -61,25 +50,19 @@ import { useAuthStore } from '../stores/auth'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const email = ref('')
+const username = ref('')
 const password = ref('')
-const confirmPassword = ref('')
 const error = ref('')
 
 async function handleRegister() {
   error.value = ''
-
-  if (password.value !== confirmPassword.value) {
-    error.value = '两次输入的密码不一致'
-    return
-  }
 
   if (password.value.length < 6) {
     error.value = '密码长度至少为6个字符'
     return
   }
 
-  const success = await authStore.register(email.value, password.value)
+  const success = await authStore.register(username.value, password.value)
 
   if (success) {
     router.push('/login')

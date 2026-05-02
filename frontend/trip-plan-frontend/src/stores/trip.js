@@ -1,8 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import axios from 'axios'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+import apiClient from '../services/api'
 
 export const useTripStore = defineStore('trip', () => {
   // State
@@ -18,22 +16,12 @@ export const useTripStore = defineStore('trip', () => {
     error.value = null
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/agent/plan_async`, {
+      const tripData = await apiClient.post('/agent/plan_async', {
         city,
         startTime,
         endTime,
         preferences
-      }, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        }
       })
-
-      console.log('[tripStore] API response:', response.data)
-
-      // 解析后端响应结构: { success: true, data: { id, status: 'pending' } }
-      const responseData = response.data
-      const tripData = responseData.data || responseData
 
       // 添加到历史记录（初始状态为 pending）
       const historyItem = {
@@ -64,7 +52,7 @@ export const useTripStore = defineStore('trip', () => {
       console.log('[tripStore] historyItem:', historyItem)
       return tripData
     } catch (err) {
-      error.value = err.response?.data?.error || err.message || 'Failed to generate trip plan'
+      error.value = err.message || 'Failed to generate trip plan'
       console.error('[tripStore] error:', err)
       return null
     } finally {
@@ -86,17 +74,7 @@ export const useTripStore = defineStore('trip', () => {
       console.log(`[tripStore] Polling task ${taskId}, attempt ${attempts}`)
 
       try {
-        const response = await axios.get(`${API_BASE_URL}/agent/task/${taskId}`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          }
-        })
-
-        const taskData = response.data?.data
-        if (!taskData) {
-          console.warn('[tripStore] Invalid task response')
-          return
-        }
+        const taskData = await apiClient.get(`/agent/task/${taskId}`)
 
         // 更新历史记录中的状态和结果
         const historyIndex = history.value.findIndex(h => h.id === taskId)
@@ -142,15 +120,11 @@ export const useTripStore = defineStore('trip', () => {
     error.value = null
 
     try {
-      const response = await axios.get(`${API_BASE_URL}/agent/history`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        }
-      })
-      history.value = response.data?.data || []
+      const data = await apiClient.get('/agent/history')
+      history.value = data || []
       return true
     } catch (err) {
-      error.value = err.response?.data?.error || 'Failed to load history'
+      error.value = err.message || 'Failed to load history'
       return false
     } finally {
       isLoading.value = false
@@ -167,11 +141,7 @@ export const useTripStore = defineStore('trip', () => {
 
   async function deleteSession(id) {
     try {
-      await axios.delete(`${API_BASE_URL}/agent/history/${id}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        }
-      })
+      await apiClient.delete(`/agent/history/${id}`)
       // 从本地历史中移除
       history.value = history.value.filter(h => h.id !== id)
       return true

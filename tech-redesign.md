@@ -51,7 +51,7 @@ pip install -r backend_new/requirements.txt
 | ORM | SQLAlchemy 2.x + asyncpg | 异步支持好，与 PostgreSQL 集成佳 |
 | Agent 框架 | LangChain 0.3.x LCEL | 替代 LangGraph，仅用 LCEL 足够线性链 |
 | 任务队列 | PostgreSQL 自建 | asyncio 协程轮询 `tasks` 表，不需要额外中间件 |
-| 偏好向量 | pgvector (DeepSeek embedding) | 1536 维向量，支持 cosine similarity |
+| 偏好向量 | pgvector (Zhipu AI embedding-3) | 1024 维向量，支持 cosine similarity |
 | 地图 API | Python requests | 参考 `skills/amap-lbs-skill/gaode_skill.py` 重写 |
 
 ### 2.2 数据库技术栈
@@ -149,7 +149,7 @@ CREATE TABLE user_preferences (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
     preference_text TEXT NOT NULL,           -- 原始偏好描述："亲子游"、"放松一点"
-    preference_vector VECTOR(1536),          -- DeepSeek text-embedding-3 维度
+    preference_vector VECTOR(1024),          -- Zhipu AI embedding-3 维度
     source TEXT DEFAULT 'input',            -- 'input' | 'history' | 'manual'
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -632,5 +632,5 @@ app.add_middleware(
 
 ---
 
-*文档版本：1.0*
-*最后更新：2026-05-01*
+*文档版本：1.1*
+*最后更新：2026-05-02*

@@ -27,5 +27,8 @@ Thumbs.db
 .claude
 .clawhub
 CLAUDE.md
-doc
+docs
 SPEC_simple_frontend.md
+
+# Docker data
+docker/postgres/data/

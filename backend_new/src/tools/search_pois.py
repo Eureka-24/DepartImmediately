@@ -55,3 +55,37 @@ async def search_pois(keywords: str, city: str, types: str = None) -> list[dict]
         }
         for p in pois
     ]
+
+
+def filter_and_rank_pois(pois: list, options: dict = None) -> list:
+    """
+    根据选项过滤和排序 POI。
+    对应 Node.js searchPois.js filterAndRankPois()
+    """
+    if options is None:
+        options = {}
+
+    max_results = options.get("max_results", 8)
+    prefer_types = options.get("prefer_types", [])
+    avoid_types = options.get("avoid_types", [])
+
+    filtered = list(pois)
+
+    # 排除某些类型
+    if avoid_types:
+        filtered = [
+            p for p in filtered
+            if not any(t.lower() in (p.get("type") or "").lower() for t in avoid_types)
+        ]
+
+    # 优先某些类型，按评分排序
+    def sort_key(p):
+        score = p.get("rating", 0) or 0
+        if prefer_types:
+            matched = any(t in (p.get("type") or "") for t in prefer_types)
+            if matched:
+                score += 1000
+        return score
+
+    filtered.sort(key=sort_key, reverse=True)
+    return filtered[:max_results]

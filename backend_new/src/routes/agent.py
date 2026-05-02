@@ -23,12 +23,6 @@ class TaskResponse(BaseModel):
     data: dict | list | None = None
 
 
-def register_task_queue(app):
-    """Start the background task queue worker."""
-    loop = asyncio.get_event_loop()
-    loop.create_task(task_queue_worker())
-
-
 @router.post("/plan_async", response_model=TaskResponse)
 async def plan_async(
     body: PlanAsyncRequest,

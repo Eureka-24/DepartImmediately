@@ -1,13 +1,11 @@
 from src.llm.chat import get_chat_response
 
 
-def build_prompt(city: str, start_time: str, end_time: str, duration_minutes: int, preferences: str, user_preferences: dict = None) -> str:
+def build_prompt(city: str, start_time: str, end_time: str, duration_minutes: int, preferences: str, extended_preferences: list = None) -> str:
     days = duration_minutes // (60 * 24)
     hours = (duration_minutes % (60 * 24)) // 60
 
-    fav_cities = ", ".join(user_preferences.get("favoriteCities", [])) if user_preferences else "无"
-    fav_types = ", ".join(user_preferences.get("favoriteTypes", [])) if user_preferences else "无"
-    travel_style = user_preferences.get("travelStyle", "无") if user_preferences else "无"
+    extended_str = ", ".join(extended_preferences) if extended_preferences else "无"
 
     return f"""你是一位专业的旅行规划意图识别专家。请从用户的旅行需求描述中提取结构化信息。
 
@@ -18,10 +16,10 @@ def build_prompt(city: str, start_time: str, end_time: str, duration_minutes: in
 旅行时长: 约 {days} 天 {hours} 小时
 用户偏好描述: {preferences or '无'}
 
-【用户历史偏好】（如有）
-喜欢的城市: {fav_cities}
-喜欢的类型: {fav_types}
-旅行风格: {travel_style}
+【用户历史偏好】（语义扩展后的相似偏好）
+{extended_str}
+
+说明：以上偏好是基于用户历史行为语义扩展的相关偏好，不是用户直接输入的偏好。请作为参考信息结合用户输入一起分析。
 
 【你的任务】
 1. 解析用户输入，提取关键信息
@@ -42,7 +40,7 @@ def build_prompt(city: str, start_time: str, end_time: str, duration_minutes: in
 }}"""
 
 
-async def parse_intent(city: str, start_time: str, end_time: str, preferences: str, user_preferences: dict = None) -> dict:
+async def parse_intent(city: str, start_time: str, end_time: str, preferences: str, extended_preferences: list = None) -> dict:
     """解析用户意图，返回结构化 JSON。"""
     from datetime import datetime
 
@@ -50,7 +48,7 @@ async def parse_intent(city: str, start_time: str, end_time: str, preferences: s
     end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
     duration_minutes = round((end - start).total_seconds() / 60)
 
-    prompt = build_prompt(city, start_time, end_time, duration_minutes, preferences, user_preferences)
+    prompt = build_prompt(city, start_time, end_time, duration_minutes, preferences, extended_preferences)
 
     messages = [
         {"role": "system", "content": "你是一个旅行规划意图识别助手。"},

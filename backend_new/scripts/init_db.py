@@ -22,6 +22,7 @@ from src.models.user import User
 from src.models.session import Session
 from src.models.task import Task
 from src.models.preference import UserPreference
+from src.models.preference_lib import PreferenceLib
 
 
 async def create_tables():

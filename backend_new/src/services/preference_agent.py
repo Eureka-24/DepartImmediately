@@ -1,64 +1,102 @@
 from datetime import datetime, timedelta
 import math
-import json
+from sqlalchemy import select, delete
 from src.llm.chat import get_chat_response
 from src.llm.embedding import get_embedding
 from src.database import AsyncSessionLocal
 from src.models.preference import UserPreference
+from src.models.preference_lib import PreferenceLib
 
 
 MAX_PREFERENCES_PER_USER = 100
 
 
-async def extract_and_save_preferences(user_id: int, raw_input: str):
+async def extract_single_preferences(raw_input: str) -> list[str]:
     """
-    1. 调用 LLM 提取结构化偏好
-    2. 生成 embedding 向量
-    3. 存入 PostgreSQL
-    4. 超过上限时删除最老的
+    从用户原始输入提取标准偏好标签（不存储）。
+
+    Returns:
+        List of standard preference tags, e.g. ["亲子游", "自然风光", "户外探险"]
     """
-    # LLM 提取关键词偏好
-    extract_prompt = f"""你是一个旅行偏好提取助手。从用户输入中提取3-5个关键词偏好。
+    if not raw_input or len(raw_input.strip()) < 2:
+        return []
 
-用户输入：{raw_input}
+    # Get all tags from preference_lib as reference
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(PreferenceLib.tag).limit(100)
+        )
+        lib_tags = [row[0] for row in result.fetchall()]
 
-请列出提取的偏好关键词，如：亲子游、放松、美食、自然风光、文化探索。
+    tags_reference = "\n".join(lib_tags) if lib_tags else "无"
 
-每个偏好单独一行，不需要额外说明。"""
+    extract_prompt = f"""你是一个旅行偏好提取助手。请从用户输入中提取标准偏好标签。
+
+【用户输入】
+{raw_input}
+
+【标准偏好库参考】
+{tags_reference}
+
+【要求】
+1. 从标准偏好库中选择 3-5 个与用户输入最相关的标签
+2. 每个标签单独一行
+3. 只返回标签名称，不返回其他内容"""
 
     messages = [
         {"role": "system", "content": "你是一个旅行偏好提取助手。"},
         {"role": "user", "content": extract_prompt},
     ]
 
-    preference_text = await get_chat_response(messages)
-    if not preference_text or len(preference_text.strip()) < 2:
+    response = await get_chat_response(messages)
+    if not response or len(response.strip()) < 2:
+        return []
+
+    # Parse response: each line is a tag
+    tags = []
+    for line in response.strip().split("\n"):
+        tag = line.strip().strip("•-_*1234567890.。 ").strip()
+        if tag:
+            tags.append(tag)
+
+    return tags[:5]  # Limit to 5 tags
+
+
+async def save_preferences(user_id: int, task_id: str, preferences: list[str]):
+    """
+    批量存储偏好列表，关联 task_id。
+
+    Args:
+        user_id: User ID
+        task_id: Task ID to link
+        preferences: List of preference tags to save
+    """
+    if not preferences:
         return
 
-    # 生成 embedding
-    preference_vector = await get_embedding(preference_text)
-
-    # 存入数据库
     async with AsyncSessionLocal() as session:
-        pref = UserPreference(
-            user_id=user_id,
-            preference_text=preference_text.strip(),
-            preference_vector=preference_vector,
-            source="input",
-        )
-        session.add(pref)
+        for pref_text in preferences:
+            # Generate embedding for each tag
+            pref_vector = await get_embedding(pref_text)
+
+            pref = UserPreference(
+                user_id=user_id,
+                task_id=task_id,
+                preference_text=pref_text,
+                preference_vector=pref_vector,
+                source="input",
+            )
+            session.add(pref)
+
         await session.commit()
 
-    # 清理超过上限的记录
+    # Cleanup old preferences
     await _cleanup_old_preferences(user_id)
 
 
 async def _cleanup_old_preferences(user_id: int):
     """删除超过上限的最老偏好记录。"""
     async with AsyncSessionLocal() as session:
-        from sqlalchemy import select, delete
-
-        # 统计当前数量
         result = await session.execute(
             select(UserPreference)
             .where(UserPreference.user_id == user_id)
@@ -77,11 +115,19 @@ async def _cleanup_old_preferences(user_id: int):
             await session.commit()
 
 
-async def query_weighted_preferences(user_id: int, current_input: str, top_k: int = 5) -> list[dict]:
+async def query_extended_preferences(user_id: int, top_k: int = 5) -> list[str]:
     """
-    查询用户偏好，带时间衰减权重。
-    返回加权后得分最高的 top_k 条偏好。
+    查询用户历史偏好，语义检索标准库，返回扩展偏好。
+
+    流程：
+    1. 查询用户最近 N 条历史偏好
+    2. 计算时间衰减权重，加权平均历史偏好向量
+    3. 向量检索 preference_lib，返回最相似的 top_k 个标签
+
+    Returns:
+        List of extended preference tags, e.g. ["亲子游", "家庭游", "儿童乐园", "自然风光", "户外探险"]
     """
+    # Step 1: Query user history
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(UserPreference)
@@ -90,31 +136,47 @@ async def query_weighted_preferences(user_id: int, current_input: str, top_k: in
         )
         prefs = result.scalars().all()
 
-    weighted_results = []
+    if not prefs:
+        return []
+
+    # Step 2: Calculate weighted average vector of history
+    weighted_vectors = []
+    weights = []
+
     for pref in prefs:
-        weight = _calculate_weight(pref.created_at)
-        # 只有当 current_input 非空时才计算相似度
-        if current_input and pref.preference_vector:
-            current_vector = await get_embedding(current_input)
-            similarity = _cosine_similarity(current_vector, pref.preference_vector)
-            final_score = similarity * weight
-        else:
-            similarity = None
-            final_score = weight  # 无相似度时只用时间权重
+        if pref.preference_vector:
+            weight = _calculate_weight(pref.created_at)
+            weighted_vectors.append(pref.preference_vector)
+            weights.append(weight)
 
-        weighted_results.append({
-            "id": pref.id,
-            "text": pref.preference_text,
-            "source": pref.source,
-            "created_at": pref.created_at.isoformat() if pref.created_at else None,
-            "similarity": round(similarity, 4) if similarity is not None else None,
-            "weight": round(weight, 4),
-            "final_score": round(final_score, 4),
-        })
+    if not weighted_vectors:
+        return []
 
-    # 按 final_score 排序
-    weighted_results.sort(key=lambda x: x["final_score"], reverse=True)
-    return weighted_results[:top_k]
+    # Weighted average
+    total_weight = sum(weights)
+    avg_vector = [
+        sum(v[i] * w for v, w in zip(weighted_vectors, weights)) / total_weight
+        for i in range(len(weighted_vectors[0]))
+    ]
+
+    # Step 3: Vector search in preference_lib
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(PreferenceLib)
+        )
+        all_lib_prefs = result.scalars().all()
+
+    similarities = []
+    for lib_pref in all_lib_prefs:
+        if lib_pref.embedding_vector:
+            similarity = _cosine_similarity(avg_vector, lib_pref.embedding_vector)
+            similarities.append((lib_pref.tag, similarity))
+
+    # Sort by similarity descending
+    similarities.sort(key=lambda x: x[1], reverse=True)
+
+    # Return top_k tags
+    return [tag for tag, _ in similarities[:top_k]]
 
 
 def _calculate_weight(created_at: datetime) -> float:
@@ -153,8 +215,6 @@ async def detect_conflicts(user_id: int, threshold: float = 0.3) -> list[dict]:
     注意：similarity < (1 - threshold) 时视为矛盾
     """
     async with AsyncSessionLocal() as session:
-        from datetime import timedelta
-
         week_ago = datetime.now() - timedelta(days=7)
         result = await session.execute(
             select(UserPreference)
@@ -168,15 +228,55 @@ async def detect_conflicts(user_id: int, threshold: float = 0.3) -> list[dict]:
     conflicts = []
     for i, pref_a in enumerate(recent_prefs):
         for pref_b in recent_prefs[i + 1:]:
-            similarity = _cosine_similarity(pref_a.preference_vector, pref_b.preference_vector)
-            distance = 1 - similarity
-            if distance > threshold:
-                conflicts.append({
-                    "pref_a": pref_a.preference_text,
-                    "pref_b": pref_b.preference_text,
-                    "distance": round(distance, 4),
-                    "created_at_a": pref_a.created_at.isoformat() if pref_a.created_at else None,
-                    "created_at_b": pref_b.created_at.isoformat() if pref_b.created_at else None,
-                })
+            if pref_a.preference_vector and pref_b.preference_vector:
+                similarity = _cosine_similarity(pref_a.preference_vector, pref_b.preference_vector)
+                distance = 1 - similarity
+                if distance > threshold:
+                    conflicts.append({
+                        "pref_a": pref_a.preference_text,
+                        "pref_b": pref_b.preference_text,
+                        "distance": round(distance, 4),
+                        "created_at_a": pref_a.created_at.isoformat() if pref_a.created_at else None,
+                        "created_at_b": pref_b.created_at.isoformat() if pref_b.created_at else None,
+                    })
 
     return conflicts
+
+
+# Legacy function for backward compatibility with routes/preferences.py
+async def query_weighted_preferences(user_id: int, current_input: str, top_k: int = 5) -> list[dict]:
+    """
+    查询用户偏好，带时间衰减权重。
+    Returns weighted results with similarity scores.
+    """
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(UserPreference)
+            .where(UserPreference.user_id == user_id)
+            .order_by(UserPreference.created_at.desc())
+        )
+        prefs = result.scalars().all()
+
+    weighted_results = []
+    for pref in prefs:
+        weight = _calculate_weight(pref.created_at)
+        if current_input and pref.preference_vector:
+            current_vector = await get_embedding(current_input)
+            similarity = _cosine_similarity(current_vector, pref.preference_vector)
+            final_score = similarity * weight
+        else:
+            similarity = None
+            final_score = weight
+
+        weighted_results.append({
+            "id": pref.id,
+            "text": pref.preference_text,
+            "source": pref.source,
+            "created_at": pref.created_at.isoformat() if pref.created_at else None,
+            "similarity": round(similarity, 4) if similarity is not None else None,
+            "weight": round(weight, 4),
+            "final_score": round(final_score, 4),
+        })
+
+    weighted_results.sort(key=lambda x: x["final_score"], reverse=True)
+    return weighted_results[:top_k]

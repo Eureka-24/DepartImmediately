@@ -151,10 +151,10 @@
               </button>
               <button
                 class="toolbar-btn delete-btn"
-                :disabled="selectedPois.size === 0"
-                @click="handleDeleteSelected"
+                :class="{ active: deleteMode }"
+                @click="handleDeleteModeToggle"
               >
-                删除选中{{ selectedPois.size > 0 ? `(${selectedPois.size})` : '' }}
+                {{ deleteMode ? '删除' : '批量删除' }}
               </button>
               <button
                 class="toolbar-btn confirm-btn"
@@ -335,6 +335,7 @@ const addedPois = ref([]) // 用户添加的 POI 列表
 const selectedPois = ref(new Set()) // 当前选中的路线景点（用于删除）
 const pendingDeletePois = ref(new Set()) // 待删除的原始景点名称集合
 const selectedPoiDetail = ref(null) // 当前选中的POI详情（用于边栏显示）
+const deleteMode = ref(false) // 批量删除模式
 
 // 是否有待确认的增删操作
 const hasChanges = computed(() => {
@@ -516,7 +517,6 @@ function handleLogout() {
 
 function handleNewSession() {
   currentTripId.value = null
-  // currentResult 现在是 computed，会自动返回 null
   formData.city = ''
   formData.startTime = ''
   formData.endTime = ''
@@ -527,6 +527,7 @@ function handleNewSession() {
   addedPois.value = []
   selectedPois.value = new Set()
   pendingDeletePois.value = new Set()
+  deleteMode.value = false
 }
 
 function handlePoiSelect(poi) {
@@ -618,7 +619,7 @@ function handleSearchMarkerClick(poi) {
   selectedSearchPoi.value = null
 }
 
-// 处理路线标记点击（选中/取消选中/恢复）
+// 处理路线标记点击
 function handleRouteMarkerClick(poi) {
   const name = poi.name
 
@@ -628,19 +629,48 @@ function handleRouteMarkerClick(poi) {
     return
   }
 
-  const newSelected = new Set(selectedPois.value)
-
-  if (newSelected.has(name)) {
-    newSelected.delete(name)
-    if (selectedPoiDetail.value?.name === name) {
-      selectedPoiDetail.value = null
+  if (deleteMode.value) {
+    // 批量删除模式：点击切换选中状态
+    const newSelected = new Set(selectedPois.value)
+    if (newSelected.has(name)) {
+      newSelected.delete(name)
+      if (selectedPoiDetail.value?.name === name) {
+        selectedPoiDetail.value = null
+      }
+    } else {
+      newSelected.add(name)
+      selectedPoiDetail.value = poi
     }
+    selectedPois.value = newSelected
   } else {
-    newSelected.add(name)
-    selectedPoiDetail.value = poi
+    // 普通模式：点击选中 POI，显示在右边栏
+    if (selectedPois.value.has(name)) {
+      selectedPois.value = new Set()
+      selectedPoiDetail.value = null
+    } else {
+      selectedPois.value = new Set([name])
+      selectedPoiDetail.value = poi
+    }
   }
 
-  selectedPois.value = newSelected
+  refreshRouteMarkers()
+}
+
+// 切换批量删除模式
+function handleDeleteModeToggle() {
+  if (deleteMode.value) {
+    // 当前是批量删除模式，点击"删除"执行删除
+    if (selectedPois.value.size > 0) {
+      handleDeleteSelected()
+    }
+    deleteMode.value = false
+    selectedPois.value = new Set()
+  } else {
+    // 进入批量删除模式
+    deleteMode.value = true
+    selectedPois.value = new Set()
+    selectedPoiDetail.value = null
+  }
   refreshRouteMarkers()
 }
 
@@ -688,6 +718,7 @@ function confirmPoiDelete() {
   selectedPois.value = new Set()
   selectedPoiDetail.value = null
   poiDeletePopup.value.show = false
+  deleteMode.value = false
 
   refreshRouteMarkers()
 }
@@ -695,6 +726,8 @@ function confirmPoiDelete() {
 // 取消删除 POI
 function cancelPoiDelete() {
   poiDeletePopup.value.show = false
+  selectedPois.value = new Set()
+  deleteMode.value = false
 }
 
 // 恢复待删除的原始景点
@@ -1214,6 +1247,16 @@ function cancelDelete() {
 .delete-btn:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.3);
   border-color: #ef4444;
+}
+
+.delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.delete-btn.active {
+  background: #ef4444;
+  color: white;
 }
 
 .confirm-btn {

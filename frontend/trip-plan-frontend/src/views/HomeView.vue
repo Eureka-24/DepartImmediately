@@ -127,13 +127,13 @@
       </section>
 
       <section class="map-section">
-        <div class="section-header">
-          <h2 class="section-title">路线地图</h2>
-          <span class="map-badge">高德地图</span>
-        </div>
-        <div class="map-toolbar">
-          <div class="toolbar-row">
-            <div class="toolbar-search">
+        <div class="map-wrapper">
+          <div class="section-header">
+            <h2 class="section-title">路线地图</h2>
+            <span class="map-badge">高德地图</span>
+          </div>
+          <div class="map-toolbar">
+            <div class="toolbar-search-row">
               <PoiSearchBar
                 :addedPoiNames="addedPoiNames"
                 @poi-select="handlePoiSelect"
@@ -141,93 +141,97 @@
                 @search-select="handleSearchSelect"
               />
             </div>
-            <div class="toolbar-actions">
-              <button
-                class="toolbar-btn add-btn"
-                :disabled="!selectedSearchPoi || !canAddMorePois"
-                @click="handleAddSelected"
-              >
-                添加选中{{ !canAddMorePois ? `(${addedPois.length}/${pendingDeletePois.size + 3})` : '' }}
-              </button>
-              <button
-                class="toolbar-btn delete-btn"
-                :class="{ active: deleteMode }"
-                @click="handleDeleteModeToggle"
-              >
-                {{ deleteMode ? '删除' : '批量删除' }}
-              </button>
-              <button
-                class="toolbar-btn confirm-btn"
-                :disabled="!hasChanges"
-                @click="handleConfirmReplan"
-              >
-                确认重新规划
-              </button>
-            </div>
-          </div>
-          <div v-if="!canAddMorePois" class="toolbar-hint">
-            已达到景点添加上限（原始景点 + 3个）
-          </div>
-        </div>
-        <div class="map-container">
-          <AmapContainer
-            ref="mapRef"
-            :city="formData.city"
-            :pois="allRoutePois"
-            :routeData="currentResult?.result || null"
-            :searchResults="searchResults"
-            :selectedSearchPoi="selectedSearchPoi"
-            :selectedPois="selectedPois"
-            @map-ready="onMapReady"
-            @search-marker-click="handleSearchMarkerClick"
-            @route-marker-click="handleRouteMarkerClick"
-          />
-          <!-- POI详情边栏 -->
-          <div v-if="selectedPoiDetail" class="poi-detail-sidebar">
-            <div class="poi-detail-header">
-              <h3 class="poi-detail-title">{{ selectedPoiDetail.name }}</h3>
-              <button class="poi-detail-close" @click="selectedPoiDetail = null">×</button>
-            </div>
-            <div class="poi-detail-body">
-              <div class="poi-detail-row" v-if="selectedPoiDetail.type">
-                <span class="poi-detail-label">类型</span>
-                <span class="poi-detail-value">{{ selectedPoiDetail.type }}</span>
+            <div class="toolbar-actions-row">
+              <div class="toolbar-info">
+                <span v-if="!canAddMorePois" class="toolbar-hint">
+                  已达到景点添加上限（原始景点 + 3个）
+                </span>
               </div>
-              <div class="poi-detail-row" v-if="selectedPoiDetail.rating">
-                <span class="poi-detail-label">评分</span>
-                <span class="poi-detail-value">⭐ {{ selectedPoiDetail.rating }}</span>
-              </div>
-              <div class="poi-detail-row" v-if="selectedPoiDetail.address">
-                <span class="poi-detail-label">地址</span>
-                <span class="poi-detail-value">{{ selectedPoiDetail.address }}</span>
-              </div>
-              <div class="poi-detail-row" v-if="selectedPoiDetail.time">
-                <span class="poi-detail-label">游览时间</span>
-                <span class="poi-detail-value">{{ selectedPoiDetail.time }}</span>
-              </div>
-              <div class="poi-detail-row" v-if="selectedPoiDetail.duration">
-                <span class="poi-detail-label">停留时长</span>
-                <span class="poi-detail-value">{{ selectedPoiDetail.duration }}</span>
-              </div>
-              <div class="poi-detail-row" v-if="selectedPoiDetail.reason">
-                <span class="poi-detail-label">推荐理由</span>
-                <span class="poi-detail-value">{{ selectedPoiDetail.reason }}</span>
-              </div>
-              <div class="poi-detail-actions">
+              <div class="toolbar-actions">
                 <button
-                  v-if="!selectedPoiDetail._isPendingDelete && selectedPoiDetail._isOriginal"
-                  class="poi-detail-btn delete"
-                  @click="handleDeleteFromDetail"
+                  class="toolbar-btn add-btn"
+                  :disabled="!selectedSearchPoi || !canAddMorePois"
+                  @click="handleAddSelected"
                 >
-                  删除此景点
+                  添加{{ !canAddMorePois ? ` (${addedPois.length}/${pendingDeletePois.size + 3})` : '' }}
                 </button>
                 <button
-                  v-if="selectedPoiDetail._isPendingDelete"
-                  class="poi-detail-btn restore"
-                  @click="handleRestoreFromDetail"
+                  class="toolbar-btn delete-btn"
+                  :class="{ active: deleteMode }"
+                  @click="handleDeleteModeToggle"
                 >
-                  恢复此景点
+                  {{ deleteMode ? '删除' : '批量删除' }}
                 </button>
+                <button
+                  class="toolbar-btn confirm-btn"
+                  :disabled="!hasChanges"
+                  @click="handleConfirmReplan"
+                >
+                  确认重新规划
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="map-container">
+            <AmapContainer
+              ref="mapRef"
+              :city="formData.city"
+              :pois="allRoutePois"
+              :routeData="currentResult?.result || null"
+              :searchResults="searchResults"
+              :selectedSearchPoi="selectedSearchPoi"
+              :selectedPois="selectedPois"
+              @map-ready="onMapReady"
+              @search-marker-click="handleSearchMarkerClick"
+              @route-marker-click="handleRouteMarkerClick"
+            />
+            <!-- POI详情边栏 -->
+            <div v-if="selectedPoiDetail" class="poi-detail-sidebar">
+              <div class="poi-detail-header">
+                <h3 class="poi-detail-title">{{ selectedPoiDetail.name }}</h3>
+                <button class="poi-detail-close" @click="selectedPoiDetail = null">×</button>
+              </div>
+              <div class="poi-detail-body">
+                <div class="poi-detail-row" v-if="selectedPoiDetail.type">
+                  <span class="poi-detail-label">类型</span>
+                  <span class="poi-detail-value">{{ selectedPoiDetail.type }}</span>
+                </div>
+                <div class="poi-detail-row" v-if="selectedPoiDetail.rating">
+                  <span class="poi-detail-label">评分</span>
+                  <span class="poi-detail-value">⭐ {{ selectedPoiDetail.rating }}</span>
+                </div>
+                <div class="poi-detail-row" v-if="selectedPoiDetail.address">
+                  <span class="poi-detail-label">地址</span>
+                  <span class="poi-detail-value">{{ selectedPoiDetail.address }}</span>
+                </div>
+                <div class="poi-detail-row" v-if="selectedPoiDetail.time">
+                  <span class="poi-detail-label">游览时间</span>
+                  <span class="poi-detail-value">{{ selectedPoiDetail.time }}</span>
+                </div>
+                <div class="poi-detail-row" v-if="selectedPoiDetail.duration">
+                  <span class="poi-detail-label">停留时长</span>
+                  <span class="poi-detail-value">{{ selectedPoiDetail.duration }}</span>
+                </div>
+                <div class="poi-detail-row" v-if="selectedPoiDetail.reason">
+                  <span class="poi-detail-label">推荐理由</span>
+                  <span class="poi-detail-value">{{ selectedPoiDetail.reason }}</span>
+                </div>
+                <div class="poi-detail-actions">
+                  <button
+                    v-if="!selectedPoiDetail._isPendingDelete && selectedPoiDetail._isOriginal"
+                    class="poi-detail-btn delete"
+                    @click="handleDeleteFromDetail"
+                  >
+                    删除此景点
+                  </button>
+                  <button
+                    v-if="selectedPoiDetail._isPendingDelete"
+                    class="poi-detail-btn restore"
+                    @click="handleRestoreFromDetail"
+                  >
+                    恢复此景点
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1155,10 +1159,14 @@ function cancelDelete() {
 }
 
 .map-section {
-  padding: 24px;
-  background: var(--card-bg, rgba(20, 30, 51, 0.4));
-  border-radius: var(--radius-xl, 20px);
+  padding: 24px 48px;
   position: relative;
+}
+
+.map-wrapper {
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .section-header {
@@ -1169,7 +1177,7 @@ function cancelDelete() {
 }
 
 .section-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary, #e2e8f0);
   margin: 0;
@@ -1177,23 +1185,31 @@ function cancelDelete() {
 
 .map-badge {
   font-size: 11px;
-  color: var(--text-muted, #94a3b8);
-  background: var(--glass, rgba(255, 255, 255, 0.03));
+  color: var(--text-dim, #64748b);
+  background: rgba(255, 255, 255, 0.03);
   padding: 4px 10px;
   border-radius: 12px;
 }
 
 .map-toolbar {
-  margin-bottom: 16px;
-}
-
-.toolbar-row {
+  margin-bottom: 12px;
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.toolbar-search {
+.toolbar-search-row {
+  width: 100%;
+}
+
+.toolbar-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toolbar-info {
   flex: 1;
 }
 
@@ -1204,20 +1220,19 @@ function cancelDelete() {
 }
 
 .toolbar-hint {
-  margin-top: 10px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: var(--radius-sm, 8px);
   color: var(--amber, #f59e0b);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .toolbar-btn {
-  padding: 10px 16px;
+  padding: 8px 16px;
   border: none;
   border-radius: var(--radius-md, 12px);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -1239,72 +1254,90 @@ function cancelDelete() {
 }
 
 .delete-btn {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.2);
   color: #ef4444;
 }
 
 .delete-btn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.3);
-  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .delete-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
 .delete-btn.active {
   background: #ef4444;
   color: white;
+  border-color: #ef4444;
+}
+
+.delete-btn.active:hover {
+  background: #dc2626;
 }
 
 .confirm-btn {
-  background: var(--glass, rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--text-primary, #e2e8f0);
 }
 
 .confirm-btn:hover:not(:disabled) {
-  border-color: var(--amber, #f59e0b);
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
   color: var(--amber, #f59e0b);
 }
 
 .map-container {
-  border-radius: var(--radius-xl, 20px);
+  width: 100%;
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
   overflow: hidden;
-  height: 500px;
+  height: 520px;
   position: relative;
   display: flex;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-lg);
 }
 
 /* POI详情边栏样式 */
 .poi-detail-sidebar {
-  width: 280px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 300px;
   height: 100%;
-  background: var(--card-bg, rgba(20, 30, 51, 0.95));
-  border-left: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  background: rgba(10, 14, 26, 0.95);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
-  animation: slideIn 0.2s ease;
+  animation: slideIn 0.25s ease;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
 }
 
 @keyframes slideIn {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 .poi-detail-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  padding: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .poi-detail-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary, #e2e8f0);
+  color: var(--text-bright, #f8fafc);
   margin: 0;
   flex: 1;
   overflow: hidden;
@@ -1316,77 +1349,94 @@ function cancelDelete() {
   width: 28px;
   height: 28px;
   background: transparent;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text-muted, #94a3b8);
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .poi-detail-close:hover {
-  background: var(--glass, rgba(255, 255, 255, 0.05));
-  color: var(--text-primary);
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
 }
 
 .poi-detail-body {
-  padding: 16px;
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .poi-detail-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.poi-detail-row:last-child {
+  margin-bottom: 0;
 }
 
 .poi-detail-label {
-  font-size: 12px;
-  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+  color: var(--text-dim, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .poi-detail-value {
   font-size: 14px;
   color: var(--text-primary, #e2e8f0);
+  line-height: 1.5;
 }
 
 .poi-detail-actions {
-  margin-top: 20px;
+  margin-top: auto;
+  padding-top: 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .poi-detail-btn {
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-radius: var(--radius-md, 12px);
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
   border: none;
+  width: 100%;
 }
 
 .poi-detail-btn.delete {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
   color: #ef4444;
 }
 
 .poi-detail-btn.delete:hover {
-  background: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .poi-detail-btn.restore {
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.25);
   color: #22c55e;
 }
 
 .poi-detail-btn.restore:hover {
-  background: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
 }
 
 /* POI删除确认弹窗 */

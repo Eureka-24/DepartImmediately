@@ -93,7 +93,6 @@ async function handleSearch() {
     hasSearched.value = true
   } catch (err) {
     errorMsg.value = '搜索失败，请稍后重试'
-    console.error('[PoiSearchBar] search error:', err)
   } finally {
     isSearching.value = false
   }

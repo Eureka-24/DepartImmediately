@@ -147,7 +147,7 @@
                 :disabled="!selectedSearchPoi || !canAddMorePois"
                 @click="handleAddSelected"
               >
-                添加选中{{ !canAddMorePois ? `(${addedPois.length}/${maxAddedPois})` : '' }}
+                添加选中{{ !canAddMorePois ? `(${addedPois.length}/${pendingDeletePois.size + 3})` : '' }}
               </button>
               <button
                 class="toolbar-btn delete-btn"
@@ -341,14 +341,11 @@ const hasChanges = computed(() => {
   return addedPois.value.length > 0 || pendingDeletePois.value.size > 0
 })
 
-// 用户添加的POI数量限制（原始景点数 + 3）
-const maxAddedPois = computed(() => {
-  return originalRoutePois.value.length + 3
-})
-
 // 是否可以继续添加POI
+// 限制条件：总景点数(剩余原始 + 已添加) < 原始景点数 + 3
+// 即：addedPois.length < (pendingDeletePois.size + 3)
 const canAddMorePois = computed(() => {
-  return addedPois.value.length < maxAddedPois.value
+  return addedPois.value.length < pendingDeletePois.value.size + 3
 })
 
 // 获取原始路线景点（用于地图显示）
@@ -503,16 +500,13 @@ async function handleSubmit() {
   )
 
   if (result) {
-    console.log('[HomeView] handleSubmit result:', result)
-    console.log('[HomeView] result.result:', result.result)
     currentTripId.value = result.id || result._id || Date.now()
-    // currentResult 现在是 computed，会自动从 history 中获取最新数据
     await loadHistory()
   }
 }
 
 function onMapReady(map) {
-  console.log('[HomeView] 地图已就绪')
+  // 地图就绪
 }
 
 function handleLogout() {
@@ -536,10 +530,8 @@ function handleNewSession() {
 }
 
 function handlePoiSelect(poi) {
-  console.log('[HomeView] handlePoiSelect:', poi)
-  // 用户从列表选择 POI → 从搜索结果移除（添加到已选列表）
+  // 用户从列表选择 POI → 从搜索结果移除
   searchResults.value = searchResults.value.filter(p => p.name !== poi.name)
-  // TODO: 添加到用户已选景点列表
 }
 
 function handleSearchResults(results) {
@@ -549,58 +541,39 @@ function handleSearchResults(results) {
 // 处理搜索选中状态变化（用户点击列表项）
 function handleSearchSelect(poi) {
   selectedSearchPoi.value = poi
-  console.log('[HomeView] handleSearchSelect:', poi?.name)
 }
 
 // 添加选中的 POI 到已添加列表
 function handleAddSelected() {
   if (!selectedSearchPoi.value) return
   if (!canAddMorePois.value) {
-    alert(`最多只能添加 ${maxAddedPois.value} 个景点`)
+    alert(`最多只能添加 ${pendingDeletePois.size + 3} 个景点`)
     return
   }
   const poi = selectedSearchPoi.value
   addedPois.value.push(poi)
   addedPoiNames.value = new Set([...addedPoiNames.value, poi.name])
   selectedSearchPoi.value = null
-
-  // 手动刷新地图上的路线标记
   refreshRouteMarkers()
-  console.log('[HomeView] handleAddSelected:', poi.name)
 }
 
 // 刷新地图上的路线标记
 function refreshRouteMarkers() {
-  if (!mapRef.value) {
-    console.warn('[HomeView] refreshRouteMarkers skipped: mapRef is null')
-    return
-  }
+  if (!mapRef.value) return
 
   const allPois = allRoutePois.value
-  console.log('[HomeView] refreshRouteMarkers, pois count:', allPois.length)
-  allPois.forEach((p, i) => {
-    console.log(`  pois[${i}]:`, p.name, '_isUserAdded:', p._isUserAdded, '_isPendingDelete:', p._isPendingDelete, 'lng:', p.lng, 'lat:', p.lat)
-  })
-
   const poisWithPosition = allPois.map(p => ({
     ...p,
     _position: p.lng && p.lat ? new window.AMap.LngLat(p.lng, p.lat) : null
   }))
 
-  console.log('[HomeView] calling showPoisWithCoords')
   mapRef.value.showPoisWithCoords(poisWithPosition)
-  console.log('[HomeView] showPoisWithCoords called')
 }
 
 // 确认重新规划
 async function handleConfirmReplan() {
   if (!hasChanges.value) return
-  console.log('[HomeView] handleConfirmReplan')
-  console.log('[HomeView] pendingDeletePois:', Array.from(pendingDeletePois.value))
-  console.log('[HomeView] addedPois:', addedPois.value)
 
-  // 构建新的 POI 列表
-  // 1. 原始景点中排除待删除的
   const remainingOriginalPois = originalRoutePois.value
     .filter(p => !pendingDeletePois.value.has(p.name))
     .map(p => ({
@@ -611,7 +584,6 @@ async function handleConfirmReplan() {
       type: p.type
     }))
 
-  // 2. 用户添加的景点
   const userAddedPois = addedPois.value.map(p => ({
     name: p.name,
     location: p.location,
@@ -620,11 +592,8 @@ async function handleConfirmReplan() {
     type: p.type
   }))
 
-  // 3. 合并
   const allPois = [...remainingOriginalPois, ...userAddedPois]
-  console.log('[HomeView] allPois for replan:', allPois)
 
-  // 调用 replan 接口
   const trip = currentResult.value
   const result = await tripStore.replan(
     trip.city,
@@ -636,7 +605,6 @@ async function handleConfirmReplan() {
 
   if (result) {
     currentTripId.value = result.id || Date.now()
-    // 清空操作状态
     addedPois.value = []
     addedPoiNames.value = new Set()
     selectedPois.value = new Set()
@@ -647,45 +615,32 @@ async function handleConfirmReplan() {
 }
 
 function handleSearchMarkerClick(poi) {
-  console.log('[HomeView] handleSearchMarkerClick:', poi)
-  // 点击搜索标记 → 取消选择状态
   selectedSearchPoi.value = null
 }
 
 // 处理路线标记点击（选中/取消选中/恢复）
 function handleRouteMarkerClick(poi) {
-  console.log('[HomeView] handleRouteMarkerClick:', poi.name, '_isPendingDelete:', poi._isPendingDelete, '_isUserAdded:', poi._isUserAdded)
   const name = poi.name
 
-  // 如果是待删除状态，点击则恢复
   if (poi._isPendingDelete) {
-    console.log('[HomeView] POI is pending delete, restoring')
     restorePoi(name)
     selectedPoiDetail.value = null
     return
   }
 
-  // 切换选中状态
   const newSelected = new Set(selectedPois.value)
 
   if (newSelected.has(name)) {
     newSelected.delete(name)
-    console.log('[HomeView] POI deselected:', name)
-    // 如果取消选中，清空详情
     if (selectedPoiDetail.value?.name === name) {
       selectedPoiDetail.value = null
     }
   } else {
     newSelected.add(name)
-    console.log('[HomeView] POI selected:', name)
-    // 设置详情
     selectedPoiDetail.value = poi
   }
 
   selectedPois.value = newSelected
-  console.log('[HomeView] selectedPois:', Array.from(newSelected))
-
-  // 刷新地图标记以显示选中状态
   refreshRouteMarkers()
 }
 
@@ -719,12 +674,10 @@ function handleDeleteSelected() {
 function confirmPoiDelete() {
   const { originalNames, userAddedNames } = poiDeletePopup.value
 
-  // 原始景点 → 待删除状态（可恢复）
   originalNames.forEach(name => {
     pendingDeletePois.value = new Set([...pendingDeletePois.value, name])
   })
 
-  // 用户添加的景点 → 直接移除
   if (userAddedNames.length > 0) {
     addedPois.value = addedPois.value.filter(p => !userAddedNames.includes(p.name))
     userAddedNames.forEach(name => {
@@ -732,14 +685,10 @@ function confirmPoiDelete() {
     })
   }
 
-  // 清空选中状态
   selectedPois.value = new Set()
   selectedPoiDetail.value = null
   poiDeletePopup.value.show = false
 
-  console.log('[HomeView] confirmPoiDelete, pendingDelete:', Array.from(pendingDeletePois.value))
-
-  // 刷新地图标记以显示最新状态
   refreshRouteMarkers()
 }
 
@@ -752,7 +701,6 @@ function cancelPoiDelete() {
 function restorePoi(name) {
   if (!pendingDeletePois.value.has(name)) return
   pendingDeletePois.value = new Set([...pendingDeletePois.value].filter(n => n !== name))
-  console.log('[HomeView] restorePoi:', name)
   refreshRouteMarkers()
 }
 

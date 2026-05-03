@@ -81,4 +81,19 @@ apiClient.interceptors.response.use(
   }
 )
 
+// 新增 API 方法
+export async function searchPois(keyword, city) {
+  return apiClient.post('/pois/search', { keyword, city })
+}
+
+export async function replan(city, startTime, endTime, preferences, pois) {
+  return apiClient.post('/agent/replan', {
+    city,
+    startTime,
+    endTime,
+    preferences,
+    pois
+  })
+}
+
 export default apiClient

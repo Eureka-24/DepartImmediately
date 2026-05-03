@@ -131,14 +131,103 @@
           <h2 class="section-title">路线地图</h2>
           <span class="map-badge">高德地图</span>
         </div>
+        <div class="map-toolbar">
+          <div class="toolbar-row">
+            <div class="toolbar-search">
+              <PoiSearchBar
+                :addedPoiNames="addedPoiNames"
+                @poi-select="handlePoiSelect"
+                @search-results="handleSearchResults"
+                @search-select="handleSearchSelect"
+              />
+            </div>
+            <div class="toolbar-actions">
+              <button
+                class="toolbar-btn add-btn"
+                :disabled="!selectedSearchPoi"
+                @click="handleAddSelected"
+              >
+                添加选中
+              </button>
+              <button
+                class="toolbar-btn delete-btn"
+                :disabled="selectedPois.size === 0"
+                @click="handleDeleteSelected"
+              >
+                删除选中{{ selectedPois.size > 0 ? `(${selectedPois.size})` : '' }}
+              </button>
+              <button
+                class="toolbar-btn confirm-btn"
+                :disabled="!hasChanges"
+                @click="handleConfirmReplan"
+              >
+                确认重新规划
+              </button>
+            </div>
+          </div>
+        </div>
         <div class="map-container">
           <AmapContainer
             ref="mapRef"
             :city="formData.city"
-            :pois="currentResult?.result?.routes || []"
+            :pois="allRoutePois"
             :routeData="currentResult?.result || null"
+            :searchResults="searchResults"
+            :selectedSearchPoi="selectedSearchPoi"
+            :selectedPois="selectedPois"
             @map-ready="onMapReady"
+            @search-marker-click="handleSearchMarkerClick"
+            @route-marker-click="handleRouteMarkerClick"
           />
+          <!-- POI详情边栏 -->
+          <div v-if="selectedPoiDetail" class="poi-detail-sidebar">
+            <div class="poi-detail-header">
+              <h3 class="poi-detail-title">{{ selectedPoiDetail.name }}</h3>
+              <button class="poi-detail-close" @click="selectedPoiDetail = null">×</button>
+            </div>
+            <div class="poi-detail-body">
+              <div class="poi-detail-row" v-if="selectedPoiDetail.type">
+                <span class="poi-detail-label">类型</span>
+                <span class="poi-detail-value">{{ selectedPoiDetail.type }}</span>
+              </div>
+              <div class="poi-detail-row" v-if="selectedPoiDetail.rating">
+                <span class="poi-detail-label">评分</span>
+                <span class="poi-detail-value">⭐ {{ selectedPoiDetail.rating }}</span>
+              </div>
+              <div class="poi-detail-row" v-if="selectedPoiDetail.address">
+                <span class="poi-detail-label">地址</span>
+                <span class="poi-detail-value">{{ selectedPoiDetail.address }}</span>
+              </div>
+              <div class="poi-detail-row" v-if="selectedPoiDetail.time">
+                <span class="poi-detail-label">游览时间</span>
+                <span class="poi-detail-value">{{ selectedPoiDetail.time }}</span>
+              </div>
+              <div class="poi-detail-row" v-if="selectedPoiDetail.duration">
+                <span class="poi-detail-label">停留时长</span>
+                <span class="poi-detail-value">{{ selectedPoiDetail.duration }}</span>
+              </div>
+              <div class="poi-detail-row" v-if="selectedPoiDetail.reason">
+                <span class="poi-detail-label">推荐理由</span>
+                <span class="poi-detail-value">{{ selectedPoiDetail.reason }}</span>
+              </div>
+              <div class="poi-detail-actions">
+                <button
+                  v-if="!selectedPoiDetail._isPendingDelete && selectedPoiDetail._isOriginal"
+                  class="poi-detail-btn delete"
+                  @click="handleDeleteFromDetail"
+                >
+                  删除此景点
+                </button>
+                <button
+                  v-if="selectedPoiDetail._isPendingDelete"
+                  class="poi-detail-btn restore"
+                  @click="handleRestoreFromDetail"
+                >
+                  恢复此景点
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -183,6 +272,7 @@ import { useTripStore } from '../stores/trip'
 import AmapContainer from '../components/map/AmapContainer.vue'
 import ItineraryOutput from '../components/output/ItineraryOutput.vue'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
+import PoiSearchBar from '../components/common/PoiSearchBar.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -192,7 +282,50 @@ const mapRef = ref(null)
 const sidebarOpen = ref(false)
 const currentTripId = ref(null)
 
-// currentResult 根据 currentTripId 从 history 中自动获取最新数据
+// 搜索相关状态
+const searchResults = ref([])
+const selectedSearchPoi = ref(null) // 当前搜索选中的 POI（地图上显示蓝色虚线）
+const addedPoiNames = ref(new Set()) // 已添加的 POI 名称集合
+const addedPois = ref([]) // 用户添加的 POI 列表
+
+// 路线相关状态
+const selectedPois = ref(new Set()) // 当前选中的路线景点（用于删除）
+const pendingDeletePois = ref(new Set()) // 待删除的原始景点名称集合
+const selectedPoiDetail = ref(null) // 当前选中的POI详情（用于边栏显示）
+
+// 是否有待确认的增删操作
+const hasChanges = computed(() => {
+  return addedPois.value.length > 0 || pendingDeletePois.value.size > 0
+})
+
+// 获取原始路线景点（用于地图显示）
+const originalRoutePois = computed(() => {
+  if (!currentResult.value?.result?.routes) return []
+  return currentResult.value.result.routes.map((poi, index) => ({
+    ...poi,
+    _isOriginal: true,
+    _index: index
+  }))
+})
+
+// 合并展示的景点（原始 + 新增），用于地图显示
+const allRoutePois = computed(() => {
+  const original = originalRoutePois.value.map(poi => ({
+    ...poi,
+    _isUserAdded: false,
+    _isPendingDelete: pendingDeletePois.value.has(poi.name)
+  }))
+  const userAdded = addedPois.value.map((poi, index) => ({
+    ...poi,
+    _isOriginal: false,
+    _isUserAdded: true,
+    _isPendingDelete: false,
+    _index: original.length + index
+  }))
+  return [...original, ...userAdded]
+})
+
+// 当前结果
 const currentResult = computed(() => {
   if (!currentTripId.value) return null
   const trip = history.value.find(h => h.id === currentTripId.value)
@@ -334,6 +467,225 @@ function handleNewSession() {
   formData.startTime = ''
   formData.endTime = ''
   formData.preferences = ''
+  searchResults.value = []
+  selectedSearchPoi.value = null
+  addedPoiNames.value = new Set()
+  addedPois.value = []
+  selectedPois.value = new Set()
+  pendingDeletePois.value = new Set()
+}
+
+function handlePoiSelect(poi) {
+  console.log('[HomeView] handlePoiSelect:', poi)
+  // 用户从列表选择 POI → 从搜索结果移除（添加到已选列表）
+  searchResults.value = searchResults.value.filter(p => p.name !== poi.name)
+  // TODO: 添加到用户已选景点列表
+}
+
+function handleSearchResults(results) {
+  searchResults.value = results
+}
+
+// 处理搜索选中状态变化（用户点击列表项）
+function handleSearchSelect(poi) {
+  selectedSearchPoi.value = poi
+  console.log('[HomeView] handleSearchSelect:', poi?.name)
+}
+
+// 添加选中的 POI 到已添加列表
+function handleAddSelected() {
+  if (!selectedSearchPoi.value) return
+  const poi = selectedSearchPoi.value
+  addedPois.value.push(poi)
+  addedPoiNames.value = new Set([...addedPoiNames.value, poi.name])
+  selectedSearchPoi.value = null
+
+  // 手动刷新地图上的路线标记
+  refreshRouteMarkers()
+  console.log('[HomeView] handleAddSelected:', poi.name)
+}
+
+// 刷新地图上的路线标记
+function refreshRouteMarkers() {
+  if (!mapRef.value) {
+    console.warn('[HomeView] refreshRouteMarkers skipped: mapRef is null')
+    return
+  }
+
+  const allPois = allRoutePois.value
+  console.log('[HomeView] refreshRouteMarkers, pois count:', allPois.length)
+  allPois.forEach((p, i) => {
+    console.log(`  pois[${i}]:`, p.name, '_isUserAdded:', p._isUserAdded, '_isPendingDelete:', p._isPendingDelete, 'lng:', p.lng, 'lat:', p.lat)
+  })
+
+  const poisWithPosition = allPois.map(p => ({
+    ...p,
+    _position: p.lng && p.lat ? new window.AMap.LngLat(p.lng, p.lat) : null
+  }))
+
+  console.log('[HomeView] calling showPoisWithCoords')
+  mapRef.value.showPoisWithCoords(poisWithPosition)
+  console.log('[HomeView] showPoisWithCoords called')
+}
+
+// 确认重新规划
+async function handleConfirmReplan() {
+  if (!hasChanges.value) return
+  console.log('[HomeView] handleConfirmReplan')
+  console.log('[HomeView] pendingDeletePois:', Array.from(pendingDeletePois.value))
+  console.log('[HomeView] addedPois:', addedPois.value)
+
+  // 构建新的 POI 列表
+  // 1. 原始景点中排除待删除的
+  const remainingOriginalPois = originalRoutePois.value
+    .filter(p => !pendingDeletePois.value.has(p.name))
+    .map(p => ({
+      name: p.name,
+      location: p.location,
+      lng: p.lng,
+      lat: p.lat,
+      type: p.type
+    }))
+
+  // 2. 用户添加的景点
+  const userAddedPois = addedPois.value.map(p => ({
+    name: p.name,
+    location: p.location,
+    lng: p.lng,
+    lat: p.lat,
+    type: p.type
+  }))
+
+  // 3. 合并
+  const allPois = [...remainingOriginalPois, ...userAddedPois]
+  console.log('[HomeView] allPois for replan:', allPois)
+
+  // 调用 replan 接口
+  const trip = currentResult.value
+  const result = await tripStore.replan(
+    trip.city,
+    trip.startTime,
+    trip.endTime,
+    trip.preferences,
+    allPois
+  )
+
+  if (result) {
+    currentTripId.value = result.id || Date.now()
+    // 清空操作状态
+    addedPois.value = []
+    addedPoiNames.value = new Set()
+    selectedPois.value = new Set()
+    pendingDeletePois.value = new Set()
+    searchResults.value = []
+    selectedSearchPoi.value = null
+  }
+}
+
+function handleSearchMarkerClick(poi) {
+  console.log('[HomeView] handleSearchMarkerClick:', poi)
+  // 点击搜索标记 → 取消选择状态
+  selectedSearchPoi.value = null
+}
+
+// 处理路线标记点击（选中/取消选中/恢复）
+function handleRouteMarkerClick(poi) {
+  console.log('[HomeView] handleRouteMarkerClick:', poi.name, '_isPendingDelete:', poi._isPendingDelete, '_isUserAdded:', poi._isUserAdded)
+  const name = poi.name
+
+  // 如果是待删除状态，点击则恢复
+  if (poi._isPendingDelete) {
+    console.log('[HomeView] POI is pending delete, restoring')
+    restorePoi(name)
+    selectedPoiDetail.value = null
+    return
+  }
+
+  // 切换选中状态
+  const newSelected = new Set(selectedPois.value)
+
+  if (newSelected.has(name)) {
+    newSelected.delete(name)
+    console.log('[HomeView] POI deselected:', name)
+    // 如果取消选中，清空详情
+    if (selectedPoiDetail.value?.name === name) {
+      selectedPoiDetail.value = null
+    }
+  } else {
+    newSelected.add(name)
+    console.log('[HomeView] POI selected:', name)
+    // 设置详情
+    selectedPoiDetail.value = poi
+  }
+
+  selectedPois.value = newSelected
+  console.log('[HomeView] selectedPois:', Array.from(newSelected))
+
+  // 刷新地图标记以显示选中状态
+  refreshRouteMarkers()
+}
+
+// 删除选中的景点
+function handleDeleteSelected() {
+  if (selectedPois.value.size === 0) return
+
+  // 区分原始景点和新添加景点
+  const originalNames = []
+  const userAddedNames = []
+
+  selectedPois.value.forEach(name => {
+    // 检查是原始景点还是用户添加的
+    const isOriginal = originalRoutePois.value.some(p => p.name === name)
+    if (isOriginal) {
+      originalNames.push(name)
+    } else {
+      userAddedNames.push(name)
+    }
+  })
+
+  // 原始景点 → 待删除状态（可恢复）
+  originalNames.forEach(name => {
+    pendingDeletePois.value = new Set([...pendingDeletePois.value, name])
+  })
+
+  // 用户添加的景点 → 直接移除
+  if (userAddedNames.length > 0) {
+    addedPois.value = addedPois.value.filter(p => !userAddedNames.includes(p.name))
+    userAddedNames.forEach(name => {
+      addedPoiNames.value = new Set([...addedPoiNames.value].filter(n => n !== name))
+    })
+  }
+
+  // 清空选中状态
+  selectedPois.value = new Set()
+  console.log('[HomeView] handleDeleteSelected, pendingDelete:', Array.from(pendingDeletePois.value))
+
+  // 刷新地图标记以显示最新状态
+  refreshRouteMarkers()
+}
+
+// 恢复待删除的原始景点
+function restorePoi(name) {
+  if (!pendingDeletePois.value.has(name)) return
+  pendingDeletePois.value = new Set([...pendingDeletePois.value].filter(n => n !== name))
+  console.log('[HomeView] restorePoi:', name)
+  refreshRouteMarkers()
+}
+
+// 从详情边栏删除景点
+function handleDeleteFromDetail() {
+  if (!selectedPoiDetail.value) return
+  const name = selectedPoiDetail.value.name
+  selectedPois.value = new Set([name])
+  handleDeleteSelected()
+  selectedPoiDetail.value = null
+}
+
+// 从详情边栏恢复景点
+function handleRestoreFromDetail() {
+  if (!selectedPoiDetail.value) return
+  restorePoi(selectedPoiDetail.value.name)
+  selectedPoiDetail.value = null
 }
 
 function handleDeleteSession(id, event) {
@@ -735,5 +1087,220 @@ function cancelDelete() {
 
 .delete-popup-confirm:hover {
   background: #dc2626;
+}
+
+.map-section {
+  padding: 24px;
+  background: var(--card-bg, rgba(20, 30, 51, 0.4));
+  border-radius: var(--radius-xl, 20px);
+  position: relative;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+  margin: 0;
+}
+
+.map-badge {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  background: var(--glass, rgba(255, 255, 255, 0.03));
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.map-toolbar {
+  margin-bottom: 16px;
+}
+
+.toolbar-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.toolbar-search {
+  flex: 1;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toolbar-btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius-md, 12px);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.add-btn {
+  background: var(--amber, #f59e0b);
+  color: var(--midnight-deep, #0a0e1a);
+}
+
+.add-btn:hover:not(:disabled) {
+  background: var(--coral, #f97316);
+}
+
+.delete-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: #ef4444;
+}
+
+.confirm-btn {
+  background: var(--glass, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #e2e8f0);
+}
+
+.confirm-btn:hover:not(:disabled) {
+  border-color: var(--amber, #f59e0b);
+  color: var(--amber, #f59e0b);
+}
+
+.map-container {
+  border-radius: var(--radius-xl, 20px);
+  overflow: hidden;
+  height: 500px;
+  position: relative;
+  display: flex;
+}
+
+/* POI详情边栏样式 */
+.poi-detail-sidebar {
+  width: 280px;
+  height: 100%;
+  background: var(--card-bg, rgba(20, 30, 51, 0.95));
+  border-left: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  flex-shrink: 0;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.poi-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+}
+
+.poi-detail-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+  margin: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poi-detail-close {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.poi-detail-close:hover {
+  background: var(--glass, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary);
+}
+
+.poi-detail-body {
+  padding: 16px;
+}
+
+.poi-detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.poi-detail-label {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.poi-detail-value {
+  font-size: 14px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.poi-detail-actions {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.poi-detail-btn {
+  padding: 10px 16px;
+  border-radius: var(--radius-md, 12px);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.poi-detail-btn.delete {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.poi-detail-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.poi-detail-btn.restore {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+.poi-detail-btn.restore:hover {
+  background: rgba(34, 197, 94, 0.3);
 }
 </style>

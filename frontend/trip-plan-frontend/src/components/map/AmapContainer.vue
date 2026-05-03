@@ -24,12 +24,28 @@ const props = defineProps({
   routeData: {
     type: Object,
     default: null
+  },
+  // 搜索结果（完整列表，用于展示）
+  searchResults: {
+    type: Array,
+    default: () => []
+  },
+  // 当前搜索选中的 POI（单个，用于地图上显示蓝色虚线标记）
+  selectedSearchPoi: {
+    type: Object,
+    default: null
+  },
+  // 当前选中的路线景点名称集合
+  selectedPois: {
+    type: Set,
+    default: () => new Set()
   }
 })
 
-const emit = defineEmits(['map-ready', 'marker-click'])
+const emit = defineEmits(['map-ready', 'marker-click', 'search-marker-click', 'route-marker-click'])
 
-// Refs
+// 搜索临时标记（当前选中的那个 POI）
+const searchSelectedMarker = shallowRef(null)
 const mapContainer = ref(null)
 const isMapReady = ref(false)
 const map = shallowRef(null)
@@ -542,18 +558,83 @@ async function drawRoute(routeData) {
 async function showPoisWithCoords(poisWithCoords) {
   console.log('[AmapContainer] showPoisWithCoords called, count:', poisWithCoords?.length || 0)
 
-  if (!map.value || !poisWithCoords || poisWithCoords.length === 0) {
-    console.log('[AmapContainer] showPoisWithCoords skipped')
+  if (!map.value) {
+    console.warn('[AmapContainer] showPoisWithCoords skipped: map not ready')
     return
   }
 
-  clearMarkers()
+  // 如果传入空数组，直接返回
+  if (!poisWithCoords || poisWithCoords.length === 0) {
+    console.log('[AmapContainer] showPoisWithCoords skipped: empty pois')
+    return
+  }
 
-  const total = poisWithCoords.length
+  // 先收集所有 POI 的位置（不清空地图，因为还没开始添加新标记）
+  const poisWithPosition = []
 
   for (let i = 0; i < poisWithCoords.length; i++) {
     const poi = poisWithCoords[i]
+    console.log('[AmapContainer] processing poi:', poi.name, 'lng:', poi.lng, 'lat:', poi.lat, 'location:', poi.location)
+    let position = poi._position
+
+    // 如果没有预计算的位置，尝试从 lng/lat 或 location 获取
+    if (!position) {
+      if (poi.lng && poi.lat) {
+        position = new window.AMap.LngLat(poi.lng, poi.lat)
+        console.log('[AmapContainer] created position from lng/lat for', poi.name, ':', poi.lng, poi.lat)
+      } else if (poi.location && poi.location.includes(',')) {
+        // 地址字符串格式 "lng,lat"
+        const parts = poi.location.split(',')
+        const [lng, lat] = parts.map(Number)
+        if (!isNaN(lng) && !isNaN(lat)) {
+          position = new window.AMap.LngLat(lng, lat)
+          console.log('[AmapContainer] created position from location for', poi.name, ':', lng, lat)
+        }
+      } else if (poi.location) {
+        // 如果是纯地址字符串且没有 _position，尝试在地图上地理编码（异步）
+        console.log('[AmapContainer] address string without coords, attempting geocode for:', poi.name)
+        try {
+          const geocoded = await geocodeAddress(poi.location, cityNames[props.city] || '')
+          if (geocoded) {
+            position = geocoded
+            console.log('[AmapContainer] geocoded position for', poi.name, ':', position.lng, position.lat)
+          }
+        } catch (err) {
+          console.warn('[AmapContainer] geocode failed for', poi.name, ':', err)
+        }
+      }
+    } else {
+      console.log('[AmapContainer] using existing _position for', poi.name)
+    }
+
+    // 只有有位置的 POI 才添加到列表
+    if (position) {
+      poisWithPosition.push({ ...poi, _position: position })
+      console.log('[AmapContainer] POI with position:', poi.name, 'position:', position.lng, position.lat)
+    } else {
+      console.warn('[AmapContainer] SKIPPING poi (no position):', poi.name)
+    }
+  }
+
+  console.log('[AmapContainer] poisWithPosition length:', poisWithPosition.length)
+
+  // 如果没有有效 POI，保留现有标记并返回
+  if (poisWithPosition.length === 0) {
+    console.log('[AmapContainer] no pois with valid position - returning (keep existing markers)')
+    return
+  }
+
+  // 有有效 POI，清空现有标记后再添加新标记
+  console.log('[AmapContainer] clearing markers before adding new ones')
+  clearMarkers()
+
+  const total = poisWithPosition.length
+
+  for (let i = 0; i < poisWithPosition.length; i++) {
+    const poi = poisWithPosition[i]
     const position = poi._position
+
+    console.log('[AmapContainer] processing poi:', poi.name, '_isUserAdded:', poi._isUserAdded, '_isPendingDelete:', poi._isPendingDelete)
 
     if (!position) {
       console.warn('[AmapContainer] no position for poi:', poi.name)
@@ -561,8 +642,29 @@ async function showPoisWithCoords(poisWithCoords) {
     }
 
     const isStart = i === 0
-    const isEnd = i === total - 1 && total > 1
-    const markerColor = isStart ? '#22c55e' : (isEnd ? '#ef4444' : '#f59e0b')
+    const isEnd = i === total - 1 && total > 1 && !poi._isUserAdded
+
+    // 确定标记颜色和状态
+    let markerColor
+    let markerClass = 'poi-marker'
+
+    if (poi._isUserAdded) {
+      // 用户新增的景点 - 绿色，但保持菱形样式
+      markerColor = '#22c55e'
+      markerClass += ' user-added'
+    } else if (poi._isPendingDelete) {
+      // 待删除的原始景点 - 灰色
+      markerColor = '#9ca3af'
+      markerClass += ' pending-delete'
+    } else {
+      // 正常的原始景点 - 橙色/起始绿色/终点红色
+      markerColor = isStart ? '#22c55e' : (isEnd ? '#ef4444' : '#f59e0b')
+    }
+
+    // 如果被选中，添加选中样式
+    if (props.selectedPois && props.selectedPois.has(poi.name)) {
+      markerClass += ' selected'
+    }
 
     // 创建自定义标记容器
     const markerContent = document.createElement('div')
@@ -570,7 +672,7 @@ async function showPoisWithCoords(poisWithCoords) {
 
     // 创建标记主体
     const markerInner = document.createElement('div')
-    markerInner.className = 'poi-marker'
+    markerInner.className = markerClass
     markerInner.style.backgroundColor = markerColor
     if (isStart || isEnd) {
       markerInner.style.width = '36px'
@@ -580,7 +682,11 @@ async function showPoisWithCoords(poisWithCoords) {
     // 标记上的文字
     const markerText = document.createElement('span')
     markerText.className = 'poi-marker-text'
-    if (isStart) {
+    if (poi._isPendingDelete) {
+      markerText.textContent = '×'
+    } else if (poi._isUserAdded) {
+      markerText.textContent = '+'
+    } else if (isStart) {
       markerText.textContent = '起'
     } else if (isEnd) {
       markerText.textContent = '终'
@@ -590,12 +696,16 @@ async function showPoisWithCoords(poisWithCoords) {
     markerInner.appendChild(markerText)
     markerContent.appendChild(markerInner)
 
-    // POI 名称标签
+    // POI 名称标签（带删除线样式）
     const nameLabel = document.createElement('div')
     nameLabel.className = 'poi-name-label'
+    if (poi._isPendingDelete) {
+      nameLabel.className += ' pending-delete'
+    }
     nameLabel.textContent = poi.name || '未知景点'
     markerContent.appendChild(nameLabel)
 
+    // 创建标记
     const marker = new window.AMap.Marker({
       position: position,
       content: markerContent,
@@ -603,21 +713,76 @@ async function showPoisWithCoords(poisWithCoords) {
       extData: poi
     })
 
-    // 信息窗口
+    // 点击路线标记 → 通知父组件（用于选中/恢复/详情）
     marker.on('click', () => {
-      const infoWindow = new window.AMap.InfoWindow({
-        content: createInfoWindowContent(poi, i),
-        offset: new window.AMap.Pixel(0, -30)
-      })
-      infoWindow.open(map.value, marker.getPosition())
+      emit('route-marker-click', poi)
     })
 
     map.value.add(marker)
     markers.value.push(marker)
-    console.log('[AmapContainer] marker added:', poi.name, 'at', position.lng, position.lat)
+    console.log('[AmapContainer] marker added to map:', poi.name)
   }
 
-  console.log('[AmapContainer] showPoisWithCoords completed, markers:', markers.value.length)
+  console.log('[AmapContainer] showPoisWithCoords completed, total markers:', markers.value.length)
+}
+
+// 显示搜索结果临时标记（蓝色虚线边框）- 单个 POI
+function showSearchMarker(poi) {
+  console.log('[AmapContainer] showSearchMarker called, poi:', poi?.name, 'map ready:', !!map.value)
+
+  if (!map.value) {
+    console.warn('[AmapContainer] showSearchMarker skipped: map not ready')
+    return
+  }
+
+  if (!poi || !poi.lng || !poi.lat) {
+    console.warn('[AmapContainer] showSearchMarker skipped: invalid poi', poi)
+    return
+  }
+
+  // 清除之前的搜索标记
+  clearSearchMarker()
+
+  const position = new window.AMap.LngLat(poi.lng, poi.lat)
+  console.log('[AmapContainer] creating marker at', position.lng, position.lat)
+
+  // 创建自定义标记容器（搜索结果样式 - 蓝色虚线）
+  const markerContent = document.createElement('div')
+  markerContent.className = 'search-marker-container'
+
+  const markerInner = document.createElement('div')
+  markerInner.className = 'search-marker'
+  markerContent.appendChild(markerInner)
+
+  const marker = new window.AMap.Marker({
+    position: position,
+    content: markerContent,
+    offset: new window.AMap.Pixel(-15, -15),
+    extData: { ...poi, _isSearchResult: true }
+  })
+
+  // 点击搜索标记不做任何操作（只用于展示，用户通过"添加选中"按钮添加）
+  // 不需要点击事件
+
+  map.value.add(marker)
+  searchSelectedMarker.value = marker
+  console.log('[AmapContainer] search marker added successfully')
+
+  // 聚焦到选中的 POI 位置
+  if (props.selectedSearchPoi && poi) {
+    map.value.setCenter(position)
+    map.value.setZoom(15, true, 500) // 动画 zoom 到 15 级
+  }
+}
+
+// 清除搜索临时标记（保留路线标记）
+function clearSearchMarker() {
+  if (!map.value) return
+
+  if (searchSelectedMarker.value) {
+    map.value.remove(searchSelectedMarker.value)
+    searchSelectedMarker.value = null
+  }
 }
 
 // 清除所有标记
@@ -683,8 +848,16 @@ watch(() => props.city, (newCity) => {
 })
 
 watch(() => props.pois, (newPois) => {
-  // Don't trigger showPois here - drawRoute handles POI display
-  // This watcher is kept only for cases where routeData is not set but pois are provided directly
+  // 当 routeData 存在时，drawRoute 会处理 POI 显示
+  // 但如果 routeData 为空且 pois 有值，直接显示 POIs
+  if (!props.routeData && newPois && newPois.length > 0) {
+    console.log('[AmapContainer] pois changed without routeData, showing pois directly')
+    const poisWithPosition = newPois.map(p => ({
+      ...p,
+      _position: p.lng && p.lat ? new window.AMap.LngLat(p.lng, p.lat) : null
+    }))
+    showPoisWithCoords(poisWithPosition)
+  }
 }, { deep: true })
 
 watch(() => props.routeData, (newRoute) => {
@@ -697,6 +870,35 @@ watch(() => props.routeData, (newRoute) => {
     console.log('[AmapContainer] drawRoute skipped')
   }
 }, { immediate: true, deep: true })
+
+// 监听搜索结果变化 - 不再直接显示标记，由 selectedSearchPoi 控制
+watch(() => props.searchResults, (newResults) => {
+  console.log('[AmapContainer] searchResults changed:', newResults?.length || 0)
+}, { deep: true })
+
+// 监听当前搜索选中的 POI 变化 → 在地图上显示/移除蓝色虚线标记
+watch(() => props.selectedSearchPoi, (newPoi) => {
+  console.log('[AmapContainer] selectedSearchPoi changed:', newPoi?.name)
+  if (newPoi) {
+    showSearchMarker(newPoi)
+  } else {
+    clearSearchMarker()
+  }
+}, { immediate: true })
+
+// 监听选中景点变化 → 刷新标记显示
+watch(() => props.selectedPois, (newSelected) => {
+  console.log('[AmapContainer] selectedPois changed:', newSelected)
+  // 选中状态变化不需要重新渲染所有标记
+  // 只需要更新选中样式即可，这里通过刷新来实现
+}, { deep: true })
+
+// 地图就绪后，检查是否需要显示搜索标记
+watch(() => isMapReady.value, (ready) => {
+  if (ready && props.selectedSearchPoi) {
+    showSearchMarker(props.selectedSearchPoi)
+  }
+})
 
 // 生命周期
 onMounted(() => {
@@ -712,6 +914,7 @@ defineExpose({
   initMap,
   showMarker,
   showPois,
+  showPoisWithCoords,
   drawRoute,
   clearMarkers,
   clearPolylines,
@@ -804,6 +1007,72 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
+}
+
+/* 待删除状态的样式 */
+.poi-marker.pending-delete {
+  background: #9ca3af !important;
+  animation: shake 0.5s infinite;
+}
+
+/* 用户新增景点样式 - 圆形绿色（无旋转） */
+.poi-marker.user-added {
+  background: #22c55e !important;
+  border-radius: 50% !important;
+  transform: none !important;
+  width: 32px;
+  height: 32px;
+}
+
+.poi-marker.user-added .poi-marker-text {
+  transform: none !important;
+}
+
+/* 选中状态样式 - 白色高亮边框 */
+.poi-marker.selected {
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9), 0 3px 10px rgba(0, 0, 0, 0.4) !important;
+  z-index: 10;
+}
+
+/* 用户新增景点选中样式 */
+.poi-marker.user-added.selected {
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9), 0 3px 10px rgba(0, 0, 0, 0.4) !important;
+  background: #16a34a !important; /* 更深的绿色表示选中 */
+}
+
+.poi-name-label.pending-delete {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
+@keyframes shake {
+  0%, 100% { transform: rotate(-45deg) translateX(0); }
+  25% { transform: rotate(-45deg) translateX(-2px); }
+  75% { transform: rotate(-45deg) translateX(2px); }
+}
+
+/* 搜索结果临时标记样式 */
+.search-marker-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+}
+
+.search-marker {
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 4px dashed #3b82f6;
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 4px rgba(59, 130, 246, 0.6);
+  animation: pulse-blue 1.5s infinite;
+}
+
+@keyframes pulse-blue {
+  0%, 100% { box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 4px rgba(59, 130, 246, 0.6); }
+  50% { box-shadow: 0 0 20px rgba(59, 130, 246, 1), 0 0 8px rgba(59, 130, 246, 0.8); }
 }
 
 .info-window {

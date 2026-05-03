@@ -142,12 +142,55 @@ export const useTripStore = defineStore('trip', () => {
   async function deleteSession(id) {
     try {
       await apiClient.delete(`/agent/history/${id}`)
-      // 从本地历史中移除
       history.value = history.value.filter(h => h.id !== id)
       return true
     } catch (err) {
       console.error('[tripStore] delete session error:', err)
       return false
+    }
+  }
+
+  async function replan(city, startTime, endTime, preferences, pois) {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      const tripData = await apiClient.post('/agent/replan', {
+        city,
+        startTime,
+        endTime,
+        preferences,
+        pois
+      })
+
+      const historyItem = {
+        id: tripData.id || Date.now(),
+        city: tripData.city || city,
+        startTime: tripData.startTime || startTime,
+        endTime: tripData.endTime || endTime,
+        preferences: tripData.preferences || preferences,
+        result: null,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      }
+
+      const existingIndex = history.value.findIndex(h => h.id === historyItem.id)
+      if (existingIndex >= 0) {
+        history.value[existingIndex] = historyItem
+      } else {
+        history.value.unshift(historyItem)
+      }
+
+      pendingTasks.value.add(historyItem.id)
+      pollTaskStatus(historyItem.id)
+
+      return tripData
+    } catch (err) {
+      error.value = err.message || 'Failed to replan'
+      console.error('[tripStore] replan error:', err)
+      return null
+    } finally {
+      isLoading.value = false
     }
   }
 
@@ -162,6 +205,7 @@ export const useTripStore = defineStore('trip', () => {
     loadHistory,
     setCurrentTrip,
     clearCurrentTrip,
-    deleteSession
+    deleteSession,
+    replan
   }
 })

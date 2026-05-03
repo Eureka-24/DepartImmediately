@@ -9,26 +9,8 @@ from src.models.task import Task
 
 async def process_task(task_id: str):
     """
-    处理单个任务，执行完整的三链（参考 agentService.js）：
-    1. Intent Agent: 理解意图，生成结构化 intent 数据
-    2. Planning Agent: 根据 intent 调用高德 API 搜索 POI，生成 Markdown 路线
-    3. Structured Agent: 将 Markdown 转换为标准 JSON
-
-    Step 0: 偏好处理（在意图识别前）
-    - Step 0a: 提取本次偏好
-    - Step 0b: 存储本次偏好
-    - Step 0c: 语义扩展偏好
-    - Step 0d: 传入 parse_intent
+    处理单个任务，分发到普通规划或重新规划流程。
     """
-    from src.services.intent_agent import parse_intent
-    from src.services.planning_agent import generate_plan, pre_search_pois
-    from src.services.structured_agent import parse_output, DEFAULT_POPULAR_ROUTE
-    from src.services.preference_agent import (
-        extract_single_preferences,
-        save_preferences,
-        query_extended_preferences,
-    )
-
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Task).where(Task.id == task_id))
         task = result.scalar_one_or_none()
@@ -40,44 +22,26 @@ async def process_task(task_id: str):
         start_time = task_input.get("startTime", "")
         end_time = task_input.get("endTime", "")
         preferences = task_input.get("preferences", "")
+        is_replan = task_input.get("is_replan", False)
 
-    # Step 0a: 提取本次偏好
-    std_prefs = []
-    try:
-        std_prefs = await extract_single_preferences(preferences)
-    except Exception:
-        pass
-
-    # Step 0b: 存储本次偏好
-    if std_prefs:
-        try:
-            await save_preferences(task.user_id, task_id, std_prefs)
-        except Exception:
-            pass
-
-    # Step 0c: 语义扩展偏好
-    extended_prefs = []
-    try:
-        extended_prefs = await query_extended_preferences(task.user_id, top_k=5)
-    except Exception:
-        pass
-
-    # Step 0d: 传入 parse_intent
-    intent = await parse_intent(city, start_time, end_time, preferences, extended_prefs)
-
-    # Step 1: 预搜索 POI（参考 agentService.js Step 3）
-    candidate_pois = await pre_search_pois(city, intent)
-
-    # Step 2: Planning Agent 生成 Markdown（参考 planningAgent.generatePlan）
-    planning_output = await generate_plan(intent, candidate_pois)
-
-    # Step 3: Structured Agent 转换为 JSON（参考 structuredAgent.parse）
-    if planning_output:
-        plan_result = await parse_output(planning_output)
+    if is_replan:
+        pois = task_input.get("pois", [])
+        plan_result = await process_replan_task(
+            pois=pois,
+            city=city,
+            start_time=start_time,
+            end_time=end_time,
+        )
     else:
-        plan_result = DEFAULT_POPULAR_ROUTE
+        plan_result = await process_normal_task(
+            user_id=task.user_id,
+            task_id=task_id,
+            city=city,
+            start_time=start_time,
+            end_time=end_time,
+            preferences=preferences,
+        )
 
-    # 更新任务结果
     async with AsyncSessionLocal() as session:
         await session.execute(
             update(Task)
@@ -89,6 +53,132 @@ async def process_task(task_id: str):
             )
         )
         await session.commit()
+
+
+async def process_normal_task(
+    user_id: int,
+    task_id: str,
+    city: str,
+    start_time: str,
+    end_time: str,
+    preferences: str,
+) -> dict:
+    """
+    处理普通规划任务。
+
+    流程：
+    1. Step 0a: 提取本次偏好
+    2. Step 0b: 存储本次偏好
+    3. Step 0c: 语义扩展偏好
+    4. Step 0d: 传入 parse_intent
+    5. 预搜索 POI
+    6. Planning Agent 生成 Markdown
+    7. Structured Agent 转换为 JSON
+    """
+    from src.services.intent_agent import parse_intent
+    from src.services.planning_agent import generate_plan, pre_search_pois
+    from src.services.structured_agent import parse_output, DEFAULT_POPULAR_ROUTE
+    from src.services.preference_agent import (
+        extract_single_preferences,
+        save_preferences,
+        query_extended_preferences,
+    )
+
+    # Step 0a: 提取本次偏好
+    std_prefs = []
+    try:
+        std_prefs = await extract_single_preferences(preferences)
+    except Exception:
+        pass
+
+    # Step 0b: 存储本次偏好
+    if std_prefs:
+        try:
+            await save_preferences(user_id, task_id, std_prefs)
+        except Exception:
+            pass
+
+    # Step 0c: 语义扩展偏好
+    extended_prefs = []
+    try:
+        extended_prefs = await query_extended_preferences(user_id, top_k=5)
+    except Exception:
+        pass
+
+    # Step 0d: 传入 parse_intent
+    intent = await parse_intent(city, start_time, end_time, preferences, extended_prefs)
+
+    # Step 1: 预搜索 POI
+    candidate_pois = await pre_search_pois(city, intent)
+
+    # Step 2: Planning Agent 生成 Markdown
+    planning_output = await generate_plan(intent, candidate_pois)
+
+    # Step 3: Structured Agent 转换为 JSON
+    if planning_output:
+        plan_result = await parse_output(planning_output)
+    else:
+        plan_result = DEFAULT_POPULAR_ROUTE
+
+    return plan_result
+
+
+async def process_replan_task(
+    pois: list[dict],
+    city: str,
+    start_time: str,
+    end_time: str,
+) -> dict:
+    """
+    处理重新规划任务。
+
+    不同于普通规划，这里：
+    1. 用户已确认景点，不需要 AI 重新选择
+    2. 需要调用 LLM 分配游览时间和优化顺序
+    3. 需要调用高德路径规划 API 生成交通信息
+    """
+    from src.services.replan_agent import generate_replan
+    from src.services.structured_agent import parse_output
+
+    if not pois or len(pois) == 0:
+        return {
+            "routes": [],
+            "summary": "未提供景点列表"
+        }
+
+    # Step 1: 调用 LLM 分配时间并生成 Markdown
+    planning_output = await generate_replan(
+        pois=pois,
+        city=city,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    # Step 2: 将 Markdown 转换为 JSON
+    if planning_output:
+        plan_result = await parse_output(planning_output)
+    else:
+        plan_result = {
+            "routes": [
+                {
+                    "name": poi.get("name", "景点"),
+                    "location": poi.get("location", ""),
+                    "lng": poi.get("lng"),
+                    "lat": poi.get("lat"),
+                    "type": poi.get("type", "景点"),
+                    "time": "",
+                    "rating": poi.get("rating", ""),
+                    "duration": "约2小时",
+                    "description": "",
+                    "reason": "用户选择",
+                    "transport": "起始点",
+                }
+                for poi in pois
+            ],
+            "summary": "基于用户选择的景点生成"
+        }
+
+    return plan_result
 
 
 async def task_queue_worker():

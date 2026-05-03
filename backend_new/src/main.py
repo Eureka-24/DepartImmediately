@@ -46,7 +46,9 @@ async def health_check():
 from src.routes.auth import router as auth_router
 from src.routes.agent import router as agent_router
 from src.routes.preferences import router as preferences_router
+from src.routes.pois import router as pois_router
 
 app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(preferences_router)
+app.include_router(pois_router)

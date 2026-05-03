@@ -144,10 +144,10 @@
             <div class="toolbar-actions">
               <button
                 class="toolbar-btn add-btn"
-                :disabled="!selectedSearchPoi"
+                :disabled="!selectedSearchPoi || !canAddMorePois"
                 @click="handleAddSelected"
               >
-                添加选中
+                添加选中{{ !canAddMorePois ? `(${addedPois.length}/${maxAddedPois})` : '' }}
               </button>
               <button
                 class="toolbar-btn delete-btn"
@@ -164,6 +164,9 @@
                 确认重新规划
               </button>
             </div>
+          </div>
+          <div v-if="!canAddMorePois" class="toolbar-hint">
+            已达到景点添加上限（原始景点 + 3个）
           </div>
         </div>
         <div class="map-container">
@@ -261,6 +264,46 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- POI删除确认弹窗 -->
+    <Teleport to="body">
+      <div v-if="poiDeletePopup.show" class="poi-delete-popup-overlay" @click="cancelPoiDelete">
+        <div class="poi-delete-popup" @click.stop>
+          <div class="poi-delete-popup-content">
+            <div class="poi-delete-popup-header">
+              <h3 class="poi-delete-popup-title">确认删除</h3>
+              <button class="poi-delete-popup-close" @click="cancelPoiDelete">×</button>
+            </div>
+            <div class="poi-delete-popup-body">
+              <p class="poi-delete-popup-text" v-if="poiDeletePopup.originalNames.length > 0 || poiDeletePopup.userAddedNames.length > 0">
+                确定要删除以下景点吗？
+              </p>
+              <ul class="poi-delete-popup-list" v-if="poiDeletePopup.originalNames.length > 0">
+                <li class="poi-delete-popup-item" v-for="name in poiDeletePopup.originalNames" :key="name">
+                  <span class="poi-delete-popup-icon">🗑</span>
+                  <span class="poi-delete-popup-name">{{ name }}</span>
+                  <span class="poi-delete-popup-hint">（可恢复）</span>
+                </li>
+              </ul>
+              <ul class="poi-delete-popup-list danger" v-if="poiDeletePopup.userAddedNames.length > 0">
+                <li class="poi-delete-popup-item" v-for="name in poiDeletePopup.userAddedNames" :key="name">
+                  <span class="poi-delete-popup-icon">🗑</span>
+                  <span class="poi-delete-popup-name">{{ name }}</span>
+                  <span class="poi-delete-popup-hint">（不可恢复）</span>
+                </li>
+              </ul>
+              <p class="poi-delete-popup-warning" v-if="poiDeletePopup.originalNames.length > 0">
+                ⚠️ 删除后可在地图上点击灰色标记恢复
+              </p>
+            </div>
+            <div class="poi-delete-popup-actions">
+              <button class="poi-delete-popup-cancel" @click="cancelPoiDelete">取消</button>
+              <button class="poi-delete-popup-confirm" @click="confirmPoiDelete">确认删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -296,6 +339,16 @@ const selectedPoiDetail = ref(null) // 当前选中的POI详情（用于边栏�
 // 是否有待确认的增删操作
 const hasChanges = computed(() => {
   return addedPois.value.length > 0 || pendingDeletePois.value.size > 0
+})
+
+// 用户添加的POI数量限制（原始景点数 + 3）
+const maxAddedPois = computed(() => {
+  return originalRoutePois.value.length + 3
+})
+
+// 是否可以继续添加POI
+const canAddMorePois = computed(() => {
+  return addedPois.value.length < maxAddedPois.value
 })
 
 // 获取原始路线景点（用于地图显示）
@@ -337,6 +390,13 @@ const deletePopup = ref({
   show: false,
   id: null,
   position: { top: '0px', left: '0px' }
+})
+
+// POI删除确认弹窗状态
+const poiDeletePopup = ref({
+  show: false,
+  originalNames: [],  // 原始景点名称（可恢复）
+  userAddedNames: []  // 用户添加的景点名称（不可恢复）
 })
 
 const isLoading = computed(() => tripStore.isLoading)
@@ -495,6 +555,10 @@ function handleSearchSelect(poi) {
 // 添加选中的 POI 到已添加列表
 function handleAddSelected() {
   if (!selectedSearchPoi.value) return
+  if (!canAddMorePois.value) {
+    alert(`最多只能添加 ${maxAddedPois.value} 个景点`)
+    return
+  }
   const poi = selectedSearchPoi.value
   addedPois.value.push(poi)
   addedPoiNames.value = new Set([...addedPoiNames.value, poi.name])
@@ -625,7 +689,7 @@ function handleRouteMarkerClick(poi) {
   refreshRouteMarkers()
 }
 
-// 删除选中的景点
+// 删除选中的景点（显示确认弹窗）
 function handleDeleteSelected() {
   if (selectedPois.value.size === 0) return
 
@@ -643,6 +707,18 @@ function handleDeleteSelected() {
     }
   })
 
+  // 显示确认弹窗
+  poiDeletePopup.value = {
+    show: true,
+    originalNames,
+    userAddedNames
+  }
+}
+
+// 确认删除 POI
+function confirmPoiDelete() {
+  const { originalNames, userAddedNames } = poiDeletePopup.value
+
   // 原始景点 → 待删除状态（可恢复）
   originalNames.forEach(name => {
     pendingDeletePois.value = new Set([...pendingDeletePois.value, name])
@@ -658,10 +734,18 @@ function handleDeleteSelected() {
 
   // 清空选中状态
   selectedPois.value = new Set()
-  console.log('[HomeView] handleDeleteSelected, pendingDelete:', Array.from(pendingDeletePois.value))
+  selectedPoiDetail.value = null
+  poiDeletePopup.value.show = false
+
+  console.log('[HomeView] confirmPoiDelete, pendingDelete:', Array.from(pendingDeletePois.value))
 
   // 刷新地图标记以显示最新状态
   refreshRouteMarkers()
+}
+
+// 取消删除 POI
+function cancelPoiDelete() {
+  poiDeletePopup.value.show = false
 }
 
 // 恢复待删除的原始景点
@@ -1138,6 +1222,16 @@ function cancelDelete() {
   flex-shrink: 0;
 }
 
+.toolbar-hint {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--amber, #f59e0b);
+  font-size: 13px;
+}
+
 .toolbar-btn {
   padding: 10px 16px;
   border: none;
@@ -1302,5 +1396,183 @@ function cancelDelete() {
 
 .poi-detail-btn.restore:hover {
   background: rgba(34, 197, 94, 0.3);
+}
+
+/* POI删除确认弹窗 */
+.poi-delete-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: rgba(10, 14, 26, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.poi-delete-popup {
+  width: 90%;
+  max-width: 400px;
+  background: var(--card-bg, rgba(20, 30, 51, 0.98));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-xl, 20px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.poi-delete-popup-content {
+  padding: 0;
+}
+
+.poi-delete-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+}
+
+.poi-delete-popup-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+  margin: 0;
+}
+
+.poi-delete-popup-close {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.poi-delete-popup-close:hover {
+  background: var(--glass, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary);
+}
+
+.poi-delete-popup-body {
+  padding: 20px 24px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.poi-delete-popup-text {
+  font-size: 14px;
+  color: var(--text-primary, #e2e8f0);
+  margin: 0 0 16px 0;
+}
+
+.poi-delete-popup-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px 0;
+}
+
+.poi-delete-popup-list.danger {
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.poi-delete-popup-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.poi-delete-popup-icon {
+  margin-right: 10px;
+  font-size: 16px;
+}
+
+.poi-delete-popup-name {
+  flex: 1;
+}
+
+.poi-delete-popup-hint {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.poi-delete-popup-list.danger .poi-delete-popup-hint {
+  color: rgba(239, 68, 68, 0.8);
+}
+
+.poi-delete-popup-warning {
+  font-size: 13px;
+  color: var(--amber, #f59e0b);
+  margin: 16px 0 0 0;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 8px;
+}
+
+.poi-delete-popup-actions {
+  display: flex;
+  gap: 12px;
+  padding: 20px 24px;
+  border-top: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+}
+
+.poi-delete-popup-cancel,
+.poi-delete-popup-confirm {
+  flex: 1;
+  padding: 12px 20px;
+  border-radius: var(--radius-md, 12px);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.poi-delete-popup-cancel {
+  background: var(--glass, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #e2e8f0);
+}
+
+.poi-delete-popup-cancel:hover {
+  background: var(--glass, rgba(255, 255, 255, 0.1));
+  border-color: var(--text-muted, #94a3b8);
+}
+
+.poi-delete-popup-confirm {
+  background: var(--danger, #ef4444);
+  color: white;
+}
+
+.poi-delete-popup-confirm:hover {
+  background: #dc2626;
 }
 </style>

@@ -404,39 +404,73 @@ async function drawRoute(routeData) {
     const path = poisWithCoords.filter(p => p._position).map(p => p._position)
 
     if (path.length >= 2) {
-      const polyline = new window.AMap.Polyline({
-        path: path,
-        strokeColor: '#f59e0b',
-        strokeWeight: 6,
-        strokeOpacity: 0.8,
-        showDir: true,
-        lineJoin: 'round'
-      })
+      // 遍历每段 POI，检查是否有实际路径规划数据
+      for (let i = 0; i < routePois.length - 1; i++) {
+        const poi = routePois[i]
+        const segmentData = poi.segment_to_next
 
-      map.value.add(polyline)
-      polylines.value.push(polyline)
+        let segmentPath = null
 
-      for (let i = 0; i < path.length - 1; i++) {
-        const start = path[i]
-        const end = path[i + 1]
-        const midPoint = new window.AMap.LngLat(
-          (start.lng + end.lng) / 2,
-          (start.lat + end.lat) / 2
-        )
-        const angle = Math.atan2(end.lat - start.lat, end.lng - start.lng) * 180 / Math.PI
+        if (segmentData && segmentData.polyline) {
+          // 有实际路径规划，使用 polyline 绘制
+          try {
+            const coordPairs = segmentData.polyline.split(';')
+            segmentPath = coordPairs
+              .filter(coord => coord && coord.includes(','))
+              .map(coord => {
+                const [lng, lat] = coord.split(',').map(Number)
+                if (!isNaN(lng) && !isNaN(lat)) {
+                  return new window.AMap.LngLat(lng, lat)
+                }
+                return null
+              })
+              .filter(p => p !== null)
+          } catch (err) {
+            console.error('[AmapContainer] polyline 解析错误:', err)
+          }
+        }
 
-        const arrow = new window.AMap.Marker({
-          position: midPoint,
-          icon: new window.AMap.Icon({
-            size: new window.AMap.Size(16, 16),
-            image: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath d="M8 0L16 12H0Z" fill="%23f59e0b"/%3E%3C/svg%3E',
-            imageSize: new window.AMap.Size(16, 16)
-          }),
-          offset: new window.AMap.Pixel(-8, -8),
-          rotation: angle
-        })
-        map.value.add(arrow)
-        polylines.value.push(arrow)
+        // 如果没有实际路径，回退到直线
+        if (!segmentPath || segmentPath.length < 2) {
+          const startPos = poisWithCoords[i]._position
+          const endPos = poisWithCoords[i + 1]._position
+          if (startPos && endPos) {
+            segmentPath = [startPos, endPos]
+          }
+        }
+
+        if (segmentPath && segmentPath.length >= 2) {
+          const segmentPolyline = new window.AMap.Polyline({
+            path: segmentPath,
+            strokeColor: '#f59e0b',
+            strokeWeight: 6,
+            strokeOpacity: 0.8,
+            showDir: true,
+            lineJoin: 'round'
+          })
+          map.value.add(segmentPolyline)
+          polylines.value.push(segmentPolyline)
+
+          // 在路段中点添加箭头
+          const midIdx = Math.floor(segmentPath.length / 2)
+          const midPoint = segmentPath[midIdx]
+          // 计算方向：使用 segment 的实际方向
+          const startPoint = segmentPath[0]
+          const endPoint = segmentPath[segmentPath.length - 1]
+          const angle = Math.atan2(endPoint.lat - startPoint.lat, endPoint.lng - startPoint.lng) * 180 / Math.PI
+          const arrow = new window.AMap.Marker({
+            position: midPoint,
+            icon: new window.AMap.Icon({
+              size: new window.AMap.Size(16, 16),
+              image: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath d="M8 0L16 12H0Z" fill="%23f59e0b"/%3E%3C/svg%3E',
+              imageSize: new window.AMap.Size(16, 16)
+            }),
+            offset: new window.AMap.Pixel(-8, -8),
+            rotation: angle
+          })
+          map.value.add(arrow)
+          polylines.value.push(arrow)
+        }
       }
     }
 

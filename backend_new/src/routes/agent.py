@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select, update, delete
@@ -6,6 +7,13 @@ from src.models.task import Task
 from src.middleware.auth import get_current_user
 from src.models.user import User
 from src.services.task_queue import create_task, task_queue_worker
+from src.tools.route_planning import (
+    geocode_address,
+    search_transit,
+    search_driving,
+    search_walking,
+    search_riding,
+)
 import asyncio
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -146,6 +154,56 @@ async def get_history(current_user: User = Depends(get_current_user)):
         ]
 
         return TaskResponse(success=True, data=data)
+
+
+class RouteSegmentRequest(BaseModel):
+    from_poi: dict  # { name, lng, lat, departure_time? }
+    to_poi: dict    # { name, lng, lat }
+    transport_mode: str  # "transit" | "driving" | "walking" | "riding"
+    departure_time: Optional[str] = None  # "HH:MM", only for transit
+
+
+@router.post("/route_segment", response_model=TaskResponse)
+async def get_route_segment(
+    body: RouteSegmentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    查询两个 POI 之间的路径规划详情。
+    用于前端切换交通方式时获取路段数据。
+    """
+    from_lng = body.from_poi.get("lng")
+    from_lat = body.from_poi.get("lat")
+    to_lng = body.to_poi.get("lng")
+    to_lat = body.to_poi.get("lat")
+
+    if not from_lng or not from_lat or not to_lng or not to_lat:
+        return TaskResponse(success=False, data={"error": "Missing coordinates"})
+
+    origin = f"{from_lng},{from_lat}"
+    destination = f"{to_lng},{to_lat}"
+
+    result = None
+
+    if body.transport_mode == "transit":
+        departure_time = None
+        if body.departure_time:
+            # Convert "HH:MM" to "HHMM" format
+            departure_time = body.departure_time.replace(":", "")
+        result = await search_transit(
+            origin, destination, departure_time=departure_time
+        )
+    elif body.transport_mode == "driving":
+        result = await search_driving(origin, destination)
+    elif body.transport_mode == "walking":
+        result = await search_walking(origin, destination)
+    elif body.transport_mode == "riding":
+        result = await search_riding(origin, destination)
+
+    if not result:
+        return TaskResponse(success=False, data={"error": "Route not found"})
+
+    return TaskResponse(success=True, data={"segment_to_next": result})
 
 
 @router.delete("/history/{task_id}", response_model=TaskResponse)

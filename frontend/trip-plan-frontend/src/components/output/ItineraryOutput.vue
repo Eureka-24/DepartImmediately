@@ -63,6 +63,36 @@
             <div v-if="expandedIndex === index && poi.description" class="poi-description-card">
               <div class="description-content" v-html="formatDescription(poi.description)"></div>
             </div>
+            <div v-if="expandedIndex === index && poi.segment_to_next" class="segment-card">
+              <div class="segment-summary">
+                <span class="transport-icon">🚌</span>
+                <span v-if="poi.departure_time" class="departure-time">{{ poi.departure_time }} 出发</span>
+                <span class="duration">{{ poi.segment_to_next.duration }}</span>
+                <span class="distance">({{ poi.segment_to_next.distance }})</span>
+              </div>
+              <div class="transport-modes">
+                <button
+                  v-for="mode in transportModes"
+                  :key="mode.value"
+                  :class="{ active: currentTransportMode[index] === mode.value }"
+                  @click.stop="switchTransport(index, mode.value)"
+                >
+                  {{ mode.label }}
+                </button>
+              </div>
+              <div class="segment-detail" v-if="showSegmentDetail[index]">
+                <div class="road-list">{{ poi.segment_to_next.road_summary }}</div>
+                <div class="steps-list">
+                  <div v-for="(step, si) in poi.segment_to_next.steps" :key="si" class="step-item">
+                    <span class="step-instruction">{{ step.instruction }}</span>
+                    <span class="step-distance">{{ step.distance }}</span>
+                  </div>
+                </div>
+              </div>
+              <button class="toggle-detail" @click.stop="toggleSegmentDetail(index)">
+                {{ showSegmentDetail[index] ? '收起' : '详情' }}
+              </button>
+            </div>
           </div>
         </div>
         <div v-if="result.summary" class="summary-section">
@@ -95,10 +125,31 @@ const props = defineProps({
 const outputContent = ref(null)
 const expandedIndex = ref(null)
 const copied = ref(false)
+const showSegmentDetail = ref({})
+const currentTransportMode = ref({})
+
+const transportModes = [
+  { value: 'transit', label: '公交' },
+  { value: 'driving', label: '驾车' },
+  { value: 'walking', label: '步行' },
+  { value: 'riding', label: '骑行' },
+]
 
 function toggleExpand(index) {
   expandedIndex.value = expandedIndex.value === index ? null : index
 }
+
+function toggleSegmentDetail(index) {
+  showSegmentDetail.value[index] = !showSegmentDetail.value[index]
+}
+
+function switchTransport(index, mode) {
+  currentTransportMode.value[index] = mode
+  // Emit event to parent to refetch segment data
+  emit('switch-transport', { index, mode })
+}
+
+const emit = defineEmits(['switch-transport'])
 
 function formatDescription(desc) {
   if (!desc) return ''
@@ -398,5 +449,113 @@ watch(() => props.result, () => {
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-muted, #94a3b8);
+}
+
+.segment-card {
+  margin: 0 0 8px 40px;
+  padding: 16px;
+  background: var(--card-bg, rgba(20, 30, 51, 0.4));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-md, 12px);
+  animation: slideDown 0.2s ease;
+}
+
+.segment-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.transport-icon {
+  font-size: 16px;
+}
+
+.departure-time {
+  color: var(--amber, #f59e0b);
+  font-weight: 500;
+}
+
+.transport-modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.transport-modes button {
+  padding: 4px 12px;
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.transport-modes button:hover {
+  border-color: var(--amber, #f59e0b);
+  color: var(--amber, #f59e0b);
+}
+
+.transport-modes button.active {
+  background: var(--amber, #f59e0b);
+  border-color: var(--amber, #f59e0b);
+  color: var(--midnight-deep, #0a0e1a);
+}
+
+.segment-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
+}
+
+.road-list {
+  font-size: 12px;
+  color: var(--text-dim, #64748b);
+  margin-bottom: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 12px;
+}
+
+.step-instruction {
+  color: var(--text-muted, #94a3b8);
+  flex: 1;
+}
+
+.step-distance {
+  color: var(--text-dim, #64748b);
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.toggle-detail {
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #64748b);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 8px 0 0 0;
+  transition: color 0.2s ease;
+}
+
+.toggle-detail:hover {
+  color: var(--amber, #f59e0b);
 }
 </style>

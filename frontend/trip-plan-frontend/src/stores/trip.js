@@ -194,6 +194,30 @@ export const useTripStore = defineStore('trip', () => {
     }
   }
 
+  async function fetchRouteSegment(fromPoi, toPoi, transportMode, departureTime) {
+    try {
+      const data = await apiClient.post('/agent/route_segment', {
+        from_poi: fromPoi,
+        to_poi: toPoi,
+        transport_mode: transportMode,
+        departure_time: departureTime,
+      })
+      return data.segment_to_next || null
+    } catch (err) {
+      console.error('[tripStore] fetchRouteSegment error:', err)
+      return null
+    }
+  }
+
+  function updateRouteSegment(tripId, routeIndex, segment) {
+    const tripIndex = history.value.findIndex(h => h.id === tripId)
+    if (tripIndex < 0) return
+    const trip = history.value[tripIndex]
+    if (!trip.result || !trip.result.routes) return
+    // Use Vue.set for reactivity
+    history.value[tripIndex].result.routes[routeIndex].segment_to_next = segment
+  }
+
   return {
     // State
     currentTrip,
@@ -206,6 +230,8 @@ export const useTripStore = defineStore('trip', () => {
     setCurrentTrip,
     clearCurrentTrip,
     deleteSession,
-    replan
+    replan,
+    fetchRouteSegment,
+    updateRouteSegment
   }
 })

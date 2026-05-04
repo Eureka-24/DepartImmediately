@@ -135,6 +135,19 @@ Step 3: Structured Agent → 转换为 JSON
 任务完成
 ```
 
+**重新规划流程（replan）**
+```
+用户增删景点
+    │
+    ▼
+Step 0: 调用 `/api/agent/replan`
+    │
+    ▼
+Step 1: Planning Agent → 基于用户提交的 POI 列表重新规划
+Step 2: Structured Agent → 转换为 JSON
+任务完成
+```
+
 ### 偏好语义扩展机制
 
 ```
@@ -174,6 +187,13 @@ Step 3: Structured Agent → 转换为 JSON
 | `/api/agent/task/:id` | GET | - (Bearer Token) | `{ success: true, data: { id, status, result } }` |
 | `/api/agent/history` | GET | - (Bearer Token) | `{ success: true, data: [{ id, city, startTime, endTime, preferences, result, status }] }` |
 | `/api/agent/history/:id` | DELETE | - (Bearer Token) | `{ success: true }` |
+| `/api/agent/replan` | POST | `{ city, startTime, endTime, preferences, pois }` | `{ success: true, data: { id, status: 'pending' } }` |
+
+### POI 接口
+
+| 端点 | 方法 | 请求体 | 响应格式 |
+|------|------|--------|----------|
+| `/api/pois/search` | POST | `{ keyword, city }` | `{ success: true, data: [{ name, location, lng, lat, type, rating?, address? }] }` |
 
 ### 偏好接口
 
@@ -218,6 +238,34 @@ CREATE TABLE preference_lib (
     embedding_vector JSONB,              -- 1024维向量
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
+
+### POI 数据结构
+
+系统使用两种 POI 结构：
+
+**BasicPOI**（搜索结果、用户新增景点）
+```typescript
+interface BasicPOI {
+  name: string;          // 景点名称
+  location: string;      // 地址或经纬度 "116.397428,39.90923"
+  lng: number;           // 经度
+  lat: number;           // 纬度
+  type: string;          // POI 类型，如"景点"
+  rating?: number;       // 评分（可选）
+  address?: string;      // 详细地址（可选）
+}
+```
+
+**RoutePOI**（后端返回的完整路线景点，继承 BasicPOI）
+```typescript
+interface RoutePOI extends BasicPOI {
+  time?: string;         // 游览时间，如"09:00-12:00"
+  duration?: string;    // 停留时长，如"3小时"
+  reason?: string;      // 推荐理由
+  transport?: string;   // 交通方式
+  description?: string; // 详细描述
+}
 ```
 
 **生成标准偏好库**：
@@ -322,9 +370,59 @@ npm run dev
 | 文档 | 说明 |
 |------|------|
 | `docs/preference_refactor_design.md` | 偏好查询与存储重构方案（2026-05-02） |
+| `docs/poi_add_delete_design.md` | 景点增删功能设计方案（2026-05-03） |
 | `docs/SPEC.md` | 技术规格文档（历史版本，待更新） |
 | `CLAUDE.md` | Claude Code 项目指导 |
 
 ---
 
-*最后更新：2026-05-02*
+## 13. 景点增删功能
+
+### 13.1 功能概述
+
+允许用户在已生成路线的基础上：
+- 新增景点（通过搜索从高德 POI 库选择）
+- 删除景点（点击地图标记或详情边栏操作）
+- 调整后重新生成路线
+
+### 13.2 前端状态管理
+
+| 状态 | 类型 | 说明 |
+|------|------|------|
+| `addedPois` | `BasicPOI[]` | 用户新增的景点列表 |
+| `addedPoiNames` | `Set<string>` | 已添加 POI 名称集合 |
+| `selectedPois` | `Set<string>` | 当前选中的路线景点 |
+| `pendingDeletePois` | `Set<string>` | 待删除的原始景点 |
+| `selectedSearchPoi` | `BasicPOI \| null` | 地图上蓝色虚线标记的 POI |
+| `deleteMode` | `boolean` | 批量删除模式开关 |
+| `selectedPoiDetail` | `POI \| null` | 详情边栏显示的 POI |
+
+### 13.3 地图标记视觉
+
+| 类型 | 样式 |
+|------|------|
+| 原始景点 | 橙色菱形 + 序号 |
+| 新增景点 | 绿色圆形 + "+" |
+| 待删除 | 灰色 + 抖动动画 + "×" |
+| 搜索选中 | 蓝色虚线边框（临时） |
+
+### 13.4 删除交互流程
+
+**普通模式**（点击地图 POI → 显示详情边栏）：
+- 点击 POI → 显示详情边栏
+- 边栏内有"删除此景点"按钮
+
+**批量删除模式**（点击"批量删除"按钮进入）：
+- 按钮变为红色"删除"
+- 点击地图 POI 可多选
+- 点击"删除"按钮弹出确认框
+- 确认后：原始景点标记为待删除，新添景点直接移除
+
+### 13.5 景点数量限制
+
+- 允许新增景点数 = 待删除原始景点数 + 3
+- 即：`addedPois.length < pendingDeletePois.size + 3`
+
+---
+
+*最后更新：2026-05-04*

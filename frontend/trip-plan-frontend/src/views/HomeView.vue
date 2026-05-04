@@ -244,6 +244,7 @@
             :result="currentResult?.result || null"
             :status="currentResult?.status || null"
             placeholder="请填写上方表单，点击「生成路线规划」开始智能规划..."
+            @switch-transport="handleSwitchTransport"
           />
         </div>
       </section>
@@ -782,6 +783,32 @@ async function confirmDelete() {
 
 function cancelDelete() {
   deletePopup.value.show = false
+}
+
+async function handleSwitchTransport({ index, mode }) {
+  if (!currentResult.value?.result?.routes) return
+
+  const routes = currentResult.value.result.routes
+  if (index >= routes.length - 1) return
+
+  const fromPoi = routes[index]
+  const toPoi = routes[index + 1]
+
+  const segment = await tripStore.fetchRouteSegment(
+    { name: fromPoi.name, lng: fromPoi.lng, lat: fromPoi.lat, departure_time: fromPoi.departure_time },
+    { name: toPoi.name, lng: toPoi.lng, lat: toPoi.lat },
+    mode,
+    fromPoi.departure_time
+  )
+
+  if (segment) {
+    // Use store method to ensure Vue reactivity
+    tripStore.updateRouteSegment(currentTripId.value, index, segment)
+    // 触发更新地图路线
+    if (mapRef.value) {
+      mapRef.value.drawRoute(currentResult.value.result)
+    }
+  }
 }
 </script>
 
